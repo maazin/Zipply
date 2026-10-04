@@ -1,6 +1,6 @@
 /*
  * Gmail status rules ported from ai-job-search (https://github.com/MadsLorentzen/ai-job-search)
- * .claude/commands/gmail-sync.md, MIT. Modified: translated to TypeScript; the
+ * ai-job-search gmail-sync.md, MIT. Modified: translated to TypeScript; the
  * phrase table drives an automatic forward-only status machine instead of a
  * batch the user approves, with conflicts and offers routed to manual review.
  */

@@ -1,6 +1,6 @@
 /*
  * ATS readability checks adapted from ai-job-search (https://github.com/MadsLorentzen/ai-job-search)
- * .claude/commands/apply.md step 5d "ATS & keyword verification", MIT, and the
+ * ai-job-search apply.md step 5d "ATS & keyword verification", MIT, and the
  * section check from Resume-Matcher's ats.py (Apache-2.0). Modified: pdf.js text
  * items (with positions) replace pdftotext, so reading order can be measured.
  */
