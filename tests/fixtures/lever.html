@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><title>Globex - Data Analyst</title></head><body>
+<div class="posting-headline"><h2>Data Analyst</h2>
+ <div class="posting-categories"><div class="sort-by-location posting-category location">Remote</div><div class="posting-category commitment">Full-time</div></div></div>
+<form method="POST" enctype="multipart/form-data" id="application-form">
+  <ul>
+    <li class="application-question"><label><div class="application-label">Resume/CV ✱</div><input type="file" name="resume" id="resume-upload-input"></label></li>
+    <li class="application-question"><label><div class="application-label">Full name ✱</div><div class="application-field"><input type="text" name="name" required></div></label></li>
+    <li class="application-question"><label><div class="application-label">Email ✱</div><div class="application-field"><input type="email" name="email" required></div></label></li>
+    <li class="application-question"><label><div class="application-label">Phone</div><div class="application-field"><input type="text" name="phone"></div></label></li>
+    <li class="application-question"><label><div class="application-label">Current company</div><div class="application-field"><input type="text" name="org"></div></label></li>
+    <li class="application-question"><label><div class="application-label">LinkedIn URL</div><div class="application-field"><input type="text" name="urls[LinkedIn]"></div></label></li>
+    <li class="application-question"><label><div class="application-label">GitHub URL</div><div class="application-field"><input type="text" name="urls[GitHub]"></div></label></li>
+  </ul>
+  <div class="application-question custom-question">
+    <div class="application-label">How many years of SQL experience do you have?</div>
+    <ul data-qa="multiple-choice">
+      <li><label><input type="radio" name="cards[abc][field0]" value="0-1">0-1</label></li>
+      <li><label><input type="radio" name="cards[abc][field0]" value="2-4">2-4</label></li>
+    </ul>
+  </div>
+  <div class="eeo-section">
+    <label>Gender<select name="eeo[gender]"><option value="">Select ...</option><option>Male</option><option>Female</option><option>Decline to self-identify</option></select></label>
+  </div>
+  <button type="submit" class="template-btn-submit">Submit application</button>
+</form>
+</body></html>

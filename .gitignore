@@ -1,0 +1,10 @@
+node_modules
+dist
+zipply.zip
+.env
+.env.local
+coverage
+test-results
+playwright-report
+.DS_Store
+*.log

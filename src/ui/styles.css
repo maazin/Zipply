@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+/* Color means something or isn't used: green filled, amber check, red required
+   and empty. Everything else is neutral, plus one accent for the main button. */
+:root {
+  color-scheme: light dark;
+}
+
+@theme {
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-bg: light-dark(#f7f7f8, #0f0f11);
+  --color-surface: light-dark(#ffffff, #18181b);
+  --color-sunken: light-dark(#f2f2f4, #121214);
+  --color-line: light-dark(#e4e4e7, #2a2a31);
+  --color-ink: light-dark(#18181b, #f4f4f5);
+  --color-muted: light-dark(#6b6b76, #a1a1aa);
+  --color-faint: light-dark(#9a9aa5, #71717a);
+  --color-accent: light-dark(#2457d6, #6b9bff);
+  --color-accent-ink: light-dark(#ffffff, #0b1220);
+  --color-ok: light-dark(#15803d, #4ade80);
+  --color-warn: light-dark(#b45309, #fbbf24);
+  --color-bad: light-dark(#c42121, #f87171);
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-accent) 25%, transparent);
+}

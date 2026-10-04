@@ -1,0 +1,49 @@
+<!doctype html>
+<html><head><title>Apply - Globex Careers</title></head><body>
+<div data-automation-id="applyFlowPage">
+  <h2>My Experience</h2>
+  <div role="group" aria-labelledby="Work-Experience-section" data-automation-id="workExperienceSection">
+    <h3 id="Work-Experience-section">Work Experience</h3>
+    <div class="blocks"></div>
+    <button data-automation-id="add-button" type="button">Add</button>
+  </div>
+  <div data-automation-id="formField-linkedinQuestion"><label for="li">LinkedIn</label><input id="li" data-automation-id="linkedinQuestion" type="text"></div>
+  <div data-automation-id="formField-countryDropdown">
+    <label id="country-label">Country<abbr>*</abbr></label>
+    <button type="button" aria-haspopup="listbox" aria-labelledby="country-label" data-automation-id="countryDropdown">Select One</button>
+  </div>
+  <ul role="listbox" id="country-list" hidden></ul>
+  <div data-automation-id="formField-legalNameSection_firstName"><label for="fn">First Name*</label><input id="fn" data-automation-id="legalNameSection_firstName" type="text" aria-required="true"></div>
+  <div data-automation-id="formField-legalNameSection_lastName"><label for="ln">Last Name*</label><input id="ln" data-automation-id="legalNameSection_lastName" type="text" aria-required="true"></div>
+  <div data-automation-id="formField-phone-number"><label for="ph">Phone Number</label><input id="ph" data-automation-id="phone-number" type="text"></div>
+</div>
+<script>
+  // Simulate Workday: "Add" creates a work block; the country button opens a listbox.
+  let n = 0
+  document.querySelector('[data-automation-id="add-button"]').addEventListener('click', () => {
+    n++
+    const b = document.createElement('div')
+    b.setAttribute('data-automation-id', 'workExperience-' + n)
+    b.innerHTML = `
+      <div data-automation-id="formField-jobTitle"><label for="jt${n}">Job Title*</label><input id="jt${n}" data-automation-id="jobTitle" type="text"></div>
+      <div data-automation-id="formField-company"><label for="co${n}">Company*</label><input id="co${n}" data-automation-id="company" type="text"></div>
+      <div data-automation-id="formField-location"><label for="lo${n}">Location</label><input id="lo${n}" data-automation-id="location" type="text"></div>
+      <div data-automation-id="formField-currentlyWorkHere"><label for="cw${n}">I currently work here</label><input id="cw${n}" type="checkbox"></div>
+      <div role="group" data-automation-id="formField-startDate" aria-label="From">
+        <input data-automation-id="dateSectionMonth-input" aria-label="Month" type="text">
+        <input data-automation-id="dateSectionYear-input" aria-label="Year" type="text"></div>
+      <div role="group" data-automation-id="formField-endDate" aria-label="To">
+        <input data-automation-id="dateSectionMonth-input" aria-label="Month" type="text">
+        <input data-automation-id="dateSectionYear-input" aria-label="Year" type="text"></div>
+      <div data-automation-id="formField-roleDescription"><label for="rd${n}">Role Description</label><textarea id="rd${n}"></textarea></div>`
+    document.querySelector('.blocks').appendChild(b)
+  })
+  const btn = document.querySelector('[data-automation-id="countryDropdown"]')
+  btn.addEventListener('click', () => {
+    const list = document.getElementById('country-list')
+    list.hidden = false
+    list.innerHTML = ['Canada', 'United States of America', 'Mexico'].map((c) => `<li role="option">${c}</li>`).join('')
+    list.querySelectorAll('li').forEach((li) => li.addEventListener('click', () => { btn.textContent = li.textContent; list.hidden = true; list.innerHTML = '' }))
+  })
+</script>
+</body></html>

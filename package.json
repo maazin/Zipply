@@ -1,0 +1,45 @@
+{
+  "name": "zipply",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Zip through job applications: one profile, one click, a tracker that keeps itself current.",
+  "type": "module",
+  "author": "Maazin Shaikh (https://www.linkedin.com/in/maazin-shaikh)",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "zip": "npm run build && cd dist && zip -qr ../zipply.zip .",
+    "test:e2e": "npm run build && playwright test"
+  },
+  "dependencies": {
+    "@google/genai": "2.27.0",
+    "dexie": "4.4.6",
+    "mammoth": "1.13.0",
+    "pdfjs-dist": "4.10.38",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "2.7.1",
+    "@playwright/test": "1.63.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/chrome": "0.3.4",
+    "@types/node": "20.19.43",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "fake-indexeddb": "6.2.5",
+    "jsdom": "26.1.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vite": "7.3.6",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}
