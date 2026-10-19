@@ -68,6 +68,17 @@ test('Profile page renders and imports a profile', async () => {
   await page.close()
 })
 
+test('Adds a PDF resume and grades it', async () => {
+  const page = await context.newPage()
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto(`chrome-extension://${extId}/src/options/index.html`)
+  await page.locator('#resumes input[type=file]').setInputFiles(join(FIX, 'resume.pdf'))
+  await expect(page.locator('#resumes').getByText('resume.pdf')).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('#resumes').getByText(/ATS read: (Good|Fix)/)).toBeVisible()
+  await expect(page.locator('#resumes').getByText(/detached/i)).toHaveCount(0)
+  await page.close()
+})
+
 test('Fills a Greenhouse form on its real hostname', async () => {
   const page = await context.newPage()
   await page.goto('https://boards.greenhouse.io/globex/jobs/4012345')

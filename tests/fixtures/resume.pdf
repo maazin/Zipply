@@ -1,0 +1,52 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 616 >>
+stream
+BT
+/F1 11 Tf
+14 TL
+72 740 Td
+(Ada Lovelace) Tj T*
+(ada@example.com | \(813\) 555-0100 | Tampa, FL) Tj T*
+() Tj T*
+(Summary) Tj T*
+(Data analyst who turns messy data into clear decisions for operations teams.) Tj T*
+() Tj T*
+(Experience) Tj T*
+(Data Analyst Intern, Acme Corp, May 2025 - Aug 2025) Tj T*
+(- Built Tableau dashboards on SQL used by 40 people each week) Tj T*
+(- Automated weekly reporting in Python and Pandas, saving 6 hours) Tj T*
+() Tj T*
+(Education) Tj T*
+(University of South Florida, BS Computer Science, May 2026) Tj T*
+() Tj T*
+(Skills) Tj T*
+(Python, SQL, Tableau, Excel, Pandas, Git) Tj T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000908 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+978
+%%EOF

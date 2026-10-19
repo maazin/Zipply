@@ -30,7 +30,8 @@ export function itemsToText(pages: PageLayout[]): string {
 }
 
 async function extractPdf(data: ArrayBuffer): Promise<ResumeContent> {
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(data), isEvalSupported: false, useSystemFonts: true }).promise
+  // pdf.js transfers (detaches) the buffer it's given to its worker, so give it a copy.
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(data.slice(0)), isEvalSupported: false, useSystemFonts: true }).promise
   const pages: PageLayout[] = []
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i)
@@ -58,10 +59,12 @@ export async function readResumeFile(file: File): Promise<{ content: ResumeConte
   const isDocx = /wordprocessingml/.test(file.type) || /\.docx$/i.test(file.name)
   if (!isPdf && !isDocx) throw new Error('Use a PDF or Word (.docx) file.')
   if (file.size > 8 * 1024 * 1024) throw new Error('That file is over 8 MB.')
+  // Encode the file before parsing, so nothing the parsers do to the buffer matters.
+  const data = toB64(buf)
   const content = isPdf ? await extractPdf(buf) : await extractDocx(buf)
   return {
     content,
-    data: toB64(buf),
+    data,
     mime: isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   }
 }
