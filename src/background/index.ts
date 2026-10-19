@@ -34,6 +34,8 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
 chrome.runtime.onStartup.addListener(async () => {
   await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
   await backgroundRefresh()
+  // Also check Gmail when the browser opens, not only every 2 hours.
+  await syncGmail().catch(() => undefined)
 })
 
 chrome.contextMenus.onClicked.addListener((info) => {
@@ -77,12 +79,27 @@ async function updateBadge(tabId: number) {
   if (on) await chrome.action.setBadgeBackgroundColor({ tabId, color: '#16a34a' }).catch(() => undefined)
 }
 
+/**
+ * You filled a form, then closed the tab or went elsewhere without a confirmed
+ * submit. Nothing pops up; the panel lists it under "Since last time" so you
+ * can log it or dismiss it.
+ */
+async function noteIfUnlogged(tabId: number, nextUrl?: string) {
+  const job = await getJob(tabId)
+  if (!job?.filledAt || job.loggedAppId) return
+  if (nextUrl && canonicalUrl(nextUrl) === canonicalUrl(job.posting.url)) return
+  await db.unlogged.put({ id: canonicalUrl(job.posting.url), at: Date.now(), job })
+  if (nextUrl) await setJob(tabId, null)
+}
+
 chrome.tabs.onRemoved.addListener(async (tabId) => {
+  await noteIfUnlogged(tabId)
   await session.remove(framesKey(tabId))
   await session.remove(jobKey(tabId))
 })
 
 chrome.tabs.onUpdated.addListener(async (tabId, info) => {
+  if (info.url) await noteIfUnlogged(tabId, info.url)
   if (info.status === 'loading' && info.url) {
     // New page: frames re-register themselves. The job context survives so a
     // confirmation page that follows a submit can still be logged.
@@ -230,6 +247,13 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
     case 'status:assign':
       await assignEmail(msg.messageId, msg.appId, msg.status as AppStatus)
       return { ok: true }
+    case 'log:unlogged': {
+      const row = await db.unlogged.get(msg.id)
+      if (!row) return { ok: false, error: 'Already handled.' }
+      const res = await logJob(row.job)
+      if (res.ok) await db.unlogged.delete(msg.id)
+      return res
+    }
     case 'queue:flush':
       return flushQueue()
     case 'applied:refresh':

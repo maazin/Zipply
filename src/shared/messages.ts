@@ -89,6 +89,7 @@ export type PageToBg =
   | { type: 'gmail:sync' }
   | { type: 'gmail:message'; messageId: string }
   | { type: 'status:assign'; messageId: string; appId: string; status: string }
+  | { type: 'log:unlogged'; id: string }
   | { type: 'queue:flush' }
   | { type: 'applied:refresh' }
 

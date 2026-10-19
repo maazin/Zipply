@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type { AppliedEntry, FieldKind, QueueItem, StatusEvent, UnmatchedEmail } from '@/shared/types'
+import type { JobContext } from '@/shared/messages'
 import type { Sealed } from './crypto'
 
 export interface VaultRow extends Sealed {
@@ -39,6 +40,13 @@ export interface EmailRow {
   at: number
 }
 
+/** A form you filled but left without a confirmed submit. */
+export interface UnloggedRow {
+  id: string
+  at: number
+  job: JobContext
+}
+
 export class ZipplyDB extends Dexie {
   vault!: EntityTable<VaultRow, 'name'>
   resumes!: EntityTable<ResumeRow, 'id'>
@@ -49,6 +57,7 @@ export class ZipplyDB extends Dexie {
   usage!: EntityTable<UsageRow, 'id'>
   events!: EntityTable<StatusEvent, 'id'>
   unmatched!: EntityTable<UnmatchedEmail, 'messageId'>
+  unlogged!: EntityTable<UnloggedRow, 'id'>
 
   constructor() {
     super('zipply')
@@ -63,6 +72,7 @@ export class ZipplyDB extends Dexie {
       events: 'id, at, seen',
       unmatched: 'messageId, at',
     })
+    this.version(2).stores({ unlogged: 'id, at' })
   }
 }
 

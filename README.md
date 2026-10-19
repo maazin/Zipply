@@ -61,7 +61,7 @@ For development with hot reload, run `npm run dev` and load `dist` the same way.
 
 Chrome extensions use their own OAuth client. You'll need a free Google Cloud project with **no billing account**.
 
-1. Load the extension once and copy its ID from `chrome://extensions`. To keep the ID stable across machines, pack it once (**Pack extension**), copy the `key` from the packed `manifest.json`, and put it in `.env` as `VITE_EXTENSION_KEY`.
+1. Run `scripts/make-key.sh`. It creates `zipply.pem` (gitignored; back it up) and sets `VITE_EXTENSION_KEY` in `.env`, so the extension ID is the same everywhere. It prints the ID.
 2. In [Google Cloud Console](https://console.cloud.google.com/), create a project, enable the **Google Sheets API** and **Gmail API**, and set up the OAuth consent screen (External, Testing) with your own account as a test user.
 3. Create credentials: **OAuth client ID → Chrome Extension**, with the extension ID from step 1.
 4. Copy `.env.example` to `.env`, set `VITE_GOOGLE_CLIENT_ID`, and rebuild.

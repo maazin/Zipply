@@ -6,7 +6,7 @@ import { computeVerdict } from '@/core/score/verdict'
 import { getProfile, listResumes } from '@/lib/repo'
 import { isLocked, unlock } from '@/lib/keys'
 import { runChecks, type ChecksResult } from '@/lib/checks'
-import { db } from '@/lib/db'
+import { db, type UnloggedRow } from '@/lib/db'
 import { Button, Card, Chip, Dot, Empty, Input, Select, Spinner, TextArea, cx } from '@/ui/kit'
 import contentScript from '@/content/index.ts?script'
 
@@ -543,8 +543,10 @@ function SinceLastTime() {
   const [events, setEvents] = useState<StatusEvent[]>([])
   const [unmatched, setUnmatched] = useState<UnmatchedEmail[]>([])
   const [apps, setApps] = useState<AppliedEntry[]>([])
+  const [unlogged, setUnlogged] = useState<UnloggedRow[]>([])
 
   const refresh = useCallback(async () => {
+    setUnlogged(await db.unlogged.orderBy('at').reverse().limit(10).toArray())
     setEvents(await db.events.orderBy('at').reverse().filter((e) => !e.seen).limit(20).toArray())
     setUnmatched(await db.unmatched.orderBy('at').reverse().limit(10).toArray())
     setApps(await db.applied.orderBy('dateApplied').reverse().limit(200).toArray())
@@ -554,7 +556,7 @@ function SinceLastTime() {
     refresh()
   }, [refresh])
 
-  if (!events.length && !unmatched.length) return null
+  if (!events.length && !unmatched.length && !unlogged.length) return null
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between">
@@ -577,6 +579,21 @@ function SinceLastTime() {
           </li>
         ))}
       </ul>
+      {unlogged.length > 0 && (
+        <div className={cx('flex flex-col gap-2', (events.length > 0) && 'mt-3 border-t border-line pt-3')}>
+          <div className="text-xs text-muted">Filled but not logged</div>
+          {unlogged.map((u) => (
+            <div key={u.id} className="flex items-center gap-2 text-[13px]">
+              <span className="mt-0.5"><Dot tone="warn" /></span>
+              <span className="min-w-0 flex-1 truncate">
+                <span className="font-medium">{u.job.posting.company || 'Unknown company'}</span> <span className="text-muted">{u.job.posting.title}</span>
+              </span>
+              <Button size="sm" onClick={async () => { await send({ type: 'log:unlogged', id: u.id }); refresh() }}>Log it</Button>
+              <Button size="sm" variant="ghost" title="I didn't submit this one" onClick={async () => { await db.unlogged.delete(u.id); refresh() }}>✕</Button>
+            </div>
+          ))}
+        </div>
+      )}
       {unmatched.length > 0 && (
         <div className="mt-3 border-t border-line pt-3">
           <div className="text-xs text-muted">Emails to assign</div>

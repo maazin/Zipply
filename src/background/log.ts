@@ -72,6 +72,7 @@ export async function isDuplicate(p: Posting): Promise<AppliedEntry | null> {
 
 export async function logJob(job: JobContext): Promise<LogResult> {
   if (!job.posting.company && !job.posting.title) return { ok: false, error: "Couldn't read the company or title from this page." }
+  await db.unlogged.delete(canonicalUrl(job.posting.url)).catch(() => undefined)
   const dup = await isDuplicate(job.posting)
   if (dup) return { ok: true, duplicate: true, appId: dup.appId }
 

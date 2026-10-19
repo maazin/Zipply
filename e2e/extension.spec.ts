@@ -94,6 +94,15 @@ test('Fills a Greenhouse form on its real hostname', async () => {
     return chrome.action.getBadgeText({ tabId: tab.id })
   })
   expect(badge).toBe(' ')
+
+  // Leave the filled form without submitting: the panel lists it to log or dismiss.
+  const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://boards.greenhouse.io/*' }))[0].id)
+  await page.goto('https://jobs.lever.co/globex/1b2c3d4e/apply')
+  const panel = await context.newPage()
+  await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
+  await expect(panel.getByText('Filled but not logged')).toBeVisible({ timeout: 10_000 })
+  await expect(panel.getByText('Data Analyst I')).toBeVisible()
+  await panel.close()
   await page.close()
 })
 
