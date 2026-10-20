@@ -107,10 +107,11 @@ export function parseRows(values: string[][], firstRow = 2): AppliedEntry[] {
 const A = (col: keyof typeof COL) => `${APPS}!${COL[col]}2:${COL[col]}`
 
 /**
- * Dashboard cells as [range, values] pairs, written with USER_ENTERED so the
- * formulas evaluate. Layout:
+ * Dashboard cells as [start cell, values] pairs, written with USER_ENTERED so the
+ * formulas evaluate. Each block names only its top-left cell, so its size can't
+ * disagree with the range (Sheets rejects the whole write if it does). Layout:
  *   A1 title, A3:B4 last 7 / 30 days (JobSync getJobsActivityForPeriod)
- *   A6:C9 response metrics, A11:C16 status funnel, A18:D21 results by verdict
+ *   A6:B9 response metrics, A11:B17 status funnel, A18:C21 results by verdict
  *   F1:G13 applications per week (12 weeks, charted)
  *   I1:U8 activity calendar, 7 days x 12 weeks (JobSync getActivityCalendarData)
  *   A24 going stale (30+ days, no reply)
@@ -145,14 +146,14 @@ export function dashboardData(): { range: string; values: (string | number)[][] 
   return [
     { range: `${DASH}!A1`, values: [['Zipply dashboard']] },
     {
-      range: `${DASH}!A3:B4`,
+      range: `${DASH}!A3`,
       values: [
         ['Applications, last 7 days', `=COUNTIFS(${date},">="&(TODAY()-6))`],
         ['Applications, last 30 days', `=COUNTIFS(${date},">="&(TODAY()-29))`],
       ],
     },
     {
-      range: `${DASH}!A6:B9`,
+      range: `${DASH}!A6`,
       values: [
         ['Total applications', `=${total}`],
         ['Response rate', `=IFERROR((${total}-COUNTIF(${status},"Applied"))/${total},0)`],
@@ -161,11 +162,11 @@ export function dashboardData(): { range: string; values: (string | number)[][] 
       ],
     },
     {
-      range: `${DASH}!A11:B16`,
+      range: `${DASH}!A11`,
       values: [['Status funnel', 'Count'], ...STATUSES.map((s) => [s, `=COUNTIF(${status},"${s}")`])],
     },
     {
-      range: `${DASH}!A18:C21`,
+      range: `${DASH}!A18`,
       values: [
         ['Verdict', 'Applications', 'Response rate'],
         ...(['Apply', 'Maybe', 'Skip'] as const).map((v) => [
@@ -175,10 +176,10 @@ export function dashboardData(): { range: string; values: (string | number)[][] 
         ]),
       ],
     },
-    { range: `${DASH}!F1:G13`, values: weekRows },
-    { range: `${DASH}!I1:U8`, values: calRows },
+    { range: `${DASH}!F1`, values: weekRows },
+    { range: `${DASH}!I1`, values: calRows },
     {
-      range: `${DASH}!A23:A24`,
+      range: `${DASH}!A23`,
       values: [
         ['Going stale (no reply in 30+ days)'],
         [`=IFERROR(FILTER({${A('Company')},${A('Job title')},${date}},${status}="Applied",${first}="",${date}<>"",${date}<=TODAY()-30),"None")`],

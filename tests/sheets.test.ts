@@ -30,9 +30,24 @@ describe('sheet layout', () => {
     expect(cells).toContain('COUNTIFS(Applications!B2:B')
     expect(cells).toContain('MEDIAN(FILTER(')
     expect(cells).toContain('Going stale')
-    const cal = data.find((d) => d.range === 'Dashboard!I1:U8')!
+    const cal = data.find((d) => d.range === 'Dashboard!I1')!
     expect(cal.values).toHaveLength(8)
     expect(cal.values[1]).toHaveLength(13)
+    // Every block names only a start cell, and no two blocks overlap.
+    const used = new Set<string>()
+    for (const d of data) {
+      const m = d.range.match(/^Dashboard!([A-Z]+)(\d+)$/)
+      expect(m, d.range).not.toBeNull()
+      const col0 = m![1].charCodeAt(0) - 65
+      const row0 = Number(m![2])
+      d.values.forEach((row, r) =>
+        row.forEach((_, c) => {
+          const key = `${col0 + c}:${row0 + r}`
+          expect(used.has(key), `${d.range} overlaps at ${key}`).toBe(false)
+          used.add(key)
+        }),
+      )
+    }
     const reqs = JSON.stringify(dashboardRequests(0, 1))
     expect(reqs).toContain('addChart')
     expect(reqs).toContain('gradientRule')

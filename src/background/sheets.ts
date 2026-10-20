@@ -7,15 +7,33 @@ import { gfetch, HttpError, SCOPES } from './google'
 const BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
 const S = [SCOPES.drive]
 
-interface SpreadsheetResp {
-  spreadsheetId: string
-  spreadsheetUrl: string
-  sheets: { properties: { sheetId: number; title: string } }[]
+/** Write the header row and the Dashboard tab. Safe to run again on the same sheet. */
+async function setupSheet(id: string): Promise<void> {
+  const meta = await gfetch<{ sheets: { properties: { sheetId: number; title: string } }[] }>(`${BASE}/${id}?fields=sheets.properties(sheetId,title)`, S)
+  const appsId = meta.sheets.find((s) => s.properties.title === APPS)?.properties.sheetId
+  const dashId = meta.sheets.find((s) => s.properties.title === DASH)?.properties.sheetId
+  if (appsId == null || dashId == null) throw new Error(`The sheet is missing its ${APPS} or ${DASH} tab`)
+  await gfetch(`${BASE}/${id}/values:batchUpdate`, S, {
+    method: 'POST',
+    body: JSON.stringify({
+      valueInputOption: 'USER_ENTERED',
+      data: [{ range: `${APPS}!A1:${LAST_COL}1`, values: [COLUMNS as unknown as string[]] }, ...dashboardData()],
+    }),
+  })
+  await gfetch(`${BASE}/${id}:batchUpdate`, S, {
+    method: 'POST',
+    body: JSON.stringify({ requests: dashboardRequests(appsId, dashId) }),
+  })
+  await updateSettings({ sheetReady: true })
 }
 
-/** Create the tracker sheet with its Applications and Dashboard tabs. */
-export async function createSheet(interactive = true): Promise<{ id: string; url: string }> {
-  const created = await gfetch<SpreadsheetResp>(
+/**
+ * Create the tracker sheet. Its ID is saved the moment it exists, so if
+ * setting up the tabs fails, the next attempt finishes this sheet instead of
+ * making another one.
+ */
+async function createSheet(interactive: boolean): Promise<string> {
+  const created = await gfetch<{ spreadsheetId: string; spreadsheetUrl: string }>(
     BASE,
     S,
     {
@@ -30,37 +48,36 @@ export async function createSheet(interactive = true): Promise<{ id: string; url
     },
     interactive,
   )
-  const id = created.spreadsheetId
-  const appsId = created.sheets.find((s) => s.properties.title === APPS)!.properties.sheetId
-  const dashId = created.sheets.find((s) => s.properties.title === DASH)!.properties.sheetId
-
-  await gfetch(`${BASE}/${id}/values:batchUpdate`, S, {
-    method: 'POST',
-    body: JSON.stringify({
-      valueInputOption: 'USER_ENTERED',
-      data: [{ range: `${APPS}!A1:${LAST_COL}1`, values: [COLUMNS as unknown as string[]] }, ...dashboardData()],
-    }),
-  })
-  await gfetch(`${BASE}/${id}:batchUpdate`, S, {
-    method: 'POST',
-    body: JSON.stringify({ requests: dashboardRequests(appsId, dashId) }),
-  })
-  await updateSettings({ sheetId: id, sheetUrl: created.spreadsheetUrl })
-  return { id, url: created.spreadsheetUrl }
+  await updateSettings({ sheetId: created.spreadsheetId, sheetUrl: created.spreadsheetUrl, sheetReady: false })
+  await setupSheet(created.spreadsheetId)
+  return created.spreadsheetId
 }
 
-/** The sheet ID, creating the sheet if needed (or if it was deleted). */
-export async function ensureSheet(interactive = false): Promise<string> {
-  const s = await getSettings()
-  if (s.sheetId) {
+let pending: Promise<string> | null = null
+
+/**
+ * The sheet ID. Creates the sheet only when there is none, or when Google says
+ * the saved one no longer exists (404). Concurrent callers share one attempt.
+ */
+export function ensureSheet(interactive = false): Promise<string> {
+  pending ??= (async () => {
+    const s = await getSettings()
+    if (!s.sheetId) return createSheet(interactive)
     try {
       await gfetch(`${BASE}/${s.sheetId}?fields=spreadsheetId`, S, {}, interactive)
-      return s.sheetId
     } catch (e) {
-      if (!(e instanceof HttpError && (e.status === 404 || e.status === 403))) throw e
+      if (e instanceof HttpError && e.status === 404) {
+        await updateSettings({ sheetId: '', sheetUrl: '', sheetReady: false })
+        return createSheet(interactive)
+      }
+      throw e
     }
-  }
-  return (await createSheet(interactive)).id
+    if (!s.sheetReady) await setupSheet(s.sheetId)
+    return s.sheetId
+  })().finally(() => {
+    pending = null
+  })
+  return pending
 }
 
 export async function readApplied(): Promise<AppliedEntry[]> {

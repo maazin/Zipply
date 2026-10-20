@@ -337,6 +337,8 @@ export interface Settings {
   cloudEmailFallback: boolean
   sheetId: string
   sheetUrl: string
+  /** Header row and Dashboard tab written. */
+  sheetReady: boolean
   googleEmail: string
   gmailEnabled: boolean
   lastGmailSync: number

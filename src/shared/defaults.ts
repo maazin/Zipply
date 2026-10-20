@@ -68,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cloudEmailFallback: false,
   sheetId: '',
   sheetUrl: '',
+  sheetReady: false,
   googleEmail: '',
   gmailEnabled: false,
   lastGmailSync: 0,
