@@ -23,19 +23,30 @@ export interface Adapter {
   /** True on the "application submitted" page or message. */
   isConfirmation(doc: Document, url: URL): boolean
   /** Repeating sections such as Workday work history. */
-  fillRepeating?(profile: Profile, doc: Document): Promise<RepeatResult>
+  /** `skip`: fields already filled on an earlier pass, left as you edited them. */
+  fillRepeating?(profile: Profile, doc: Document, skip?: Set<string>): Promise<RepeatResult>
 }
 
 const CONFIRM_TEXT =
   /(thank you for (applying|your application|submitting)|thanks for applying|application (has been |was )?(successfully )?(submitted|received|complete)|we('|’)ve received your application|your application is complete|successfully submitted)/i
 
+/** True when no application form is left on the page (fewer than 3 open text fields). */
+export function noFormLeft(doc: Document): boolean {
+  const open = Array.from(doc.querySelectorAll<HTMLInputElement>('input[type="text"], input[type="email"], input[type="tel"], input:not([type]), textarea')).filter(
+    (i) => !i.disabled && !i.closest('[hidden], [aria-hidden="true"]'),
+  )
+  return open.length < 3
+}
+
 /** Visible confirmation wording in a heading or alert, with no form left to fill. */
 export function genericConfirmation(doc: Document): boolean {
   const nodes = Array.from(doc.querySelectorAll('h1, h2, h3, [role="alert"], [role="status"], [class*="confirm" i], [class*="success" i], [class*="thank" i]'))
-  const hit = nodes.some((n) => CONFIRM_TEXT.test(n.textContent ?? ''))
-  if (!hit) return false
-  const openInputs = doc.querySelectorAll('form input[type="text"]:not([disabled]), form input[type="email"]:not([disabled]), form textarea:not([disabled])').length
-  return openInputs < 3
+  return nodes.some((n) => CONFIRM_TEXT.test(n.textContent ?? '')) && noFormLeft(doc)
+}
+
+/** An ATS-specific success marker, trusted only once the form itself is gone. */
+export function markerConfirmation(doc: Document, selector: string): boolean {
+  return Boolean(doc.querySelector(selector)) && noFormLeft(doc)
 }
 
 /** Build an explicit map from attribute patterns. */

@@ -124,7 +124,7 @@ export function App() {
   useEffect(() => {
     const onMsg = (msg: { type: string; reports?: FieldReport[]; tabId?: number; result?: LogResult; target?: string }, sender: chrome.runtime.MessageSender) => {
       if (msg?.target) return
-      if (msg.type === 'fill:done' && sender.tab?.id === tab?.id && msg.reports) {
+      if ((msg.type === 'fill:done' || msg.type === 'report:update') && sender.tab?.id === tab?.id && msg.reports) {
         setReports((prev) => mergeReports(prev, msg.reports!, sender.frameId ?? 0))
       }
       if (msg.type === 'logged' && msg.tabId === tab?.id && msg.result) setLogState(msg.result)

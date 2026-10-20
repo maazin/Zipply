@@ -114,6 +114,20 @@ export async function appendRecord(r: JobRecord): Promise<number | undefined> {
   return m ? Number(m[1]) : undefined
 }
 
+/** Application IDs already in the sheet (column A). */
+export async function sheetAppIds(): Promise<Set<string>> {
+  const id = await ensureSheet()
+  const col = await gfetch<{ values?: string[][] }>(`${BASE}/${id}/values/${encodeURIComponent(`${APPS}!A2:A`)}`, S)
+  return new Set((col.values ?? []).map((r) => r[0]).filter(Boolean))
+}
+
+export class MissingRowError extends Error {
+  constructor(appId: string) {
+    super(`Application ${appId} is no longer in the sheet`)
+    this.name = 'MissingRowError'
+  }
+}
+
 export interface StatusUpdate {
   appId: string
   status: AppStatus
@@ -127,7 +141,7 @@ export async function writeStatus(u: StatusUpdate): Promise<void> {
   // Find the row by Application ID (rows can be sorted or edited by hand).
   const col = await gfetch<{ values?: string[][] }>(`${BASE}/${id}/values/${encodeURIComponent(`${APPS}!A:A`)}`, S)
   const idx = (col.values ?? []).findIndex((r) => r[0] === u.appId)
-  if (idx < 1) throw new Error(`Application ${u.appId} is no longer in the sheet`)
+  if (idx < 1) throw new MissingRowError(u.appId)
   const row = idx + 1
   await gfetch(
     `${BASE}/${id}/values/${encodeURIComponent(`${APPS}!${COL['Status']}${row}:${COL['Last status change']}${row}`)}?valueInputOption=USER_ENTERED`,

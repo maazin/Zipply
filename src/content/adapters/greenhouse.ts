@@ -1,5 +1,5 @@
 import type { Adapter } from './types'
-import { genericConfirmation, mapBy } from './types'
+import { genericConfirmation, mapBy, markerConfirmation } from './types'
 import { textAt } from '../posting'
 
 export const greenhouse: Adapter = {
@@ -49,5 +49,5 @@ export const greenhouse: Adapter = {
   },
 
   isConfirmation: (doc, url) =>
-    /\/confirmation\b/.test(url.pathname) || Boolean(doc.querySelector('#application_confirmation, .application-confirmation')) || genericConfirmation(doc),
+    /\/confirmation\b/.test(url.pathname) || markerConfirmation(doc, '#application_confirmation, .application-confirmation') || genericConfirmation(doc),
 }

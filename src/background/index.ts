@@ -89,8 +89,9 @@ async function noteIfUnlogged(tabId: number, nextUrl?: string) {
   const job = await getJob(tabId)
   if (!job?.filledAt || job.loggedAppId) return
   if (nextUrl && canonicalUrl(nextUrl) === canonicalUrl(job.posting.url)) return
+  // The job context stays: a submit often redirects to a confirmation page at
+  // another address, and logging it removes this note again.
   await db.unlogged.put({ id: canonicalUrl(job.posting.url), at: Date.now(), job })
-  if (nextUrl) await setJob(tabId, null)
 }
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
@@ -161,6 +162,8 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
     }
     case 'fill:context':
       return fillContext(tabId, msg.resumeId)
+    case 'report:update':
+      return null
     case 'fill:done': {
       if (tabId == null) return null
       const job = await getJob(tabId)
@@ -200,7 +203,7 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
       return { frames: await getFrames(msg.tabId), job: await getJob(msg.tabId), queue: await queueSize(), settings: await getSettings() }
     case 'job:set': {
       const prev = await getJob(msg.tabId)
-      const same = prev && prev.posting.url === msg.job.posting.url
+      const same = prev && samePosting(prev.posting, msg.job.posting)
       await setJob(msg.tabId, { ...msg.job, filledAt: same ? prev.filledAt : undefined, loggedAppId: same ? prev.loggedAppId : undefined })
       return { ok: true }
     }

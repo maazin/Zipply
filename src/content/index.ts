@@ -20,6 +20,22 @@ declare global {
 }
 
 const AUTO_KEY = 'zipply-auto'
+/** Multi-page auto-fill lasts an hour after you press Fill, then needs a new click. */
+const AUTO_TTL = 60 * 60 * 1000
+
+function autoFill(): { resumeId: string | null } | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(AUTO_KEY) ?? 'null') as { resumeId: string | null; at?: number } | null
+    if (!v) return null
+    if (!v.at || Date.now() - v.at > AUTO_TTL) {
+      sessionStorage.removeItem(AUTO_KEY)
+      return null
+    }
+    return v
+  } catch {
+    return null
+  }
+}
 
 function main() {
   let adapter: Adapter = pickAdapter(new URL(location.href), document)
@@ -34,7 +50,7 @@ function main() {
   let reported = false
 
   function checkActive(): boolean {
-    if (!active) active = Boolean(sessionStorage.getItem(AUTO_KEY)) || detectApplication(document, new URL(location.href)).isApplication
+    if (!active) active = Boolean(autoFill()) || detectApplication(document, new URL(location.href)).isApplication
     return active
   }
 
@@ -56,7 +72,7 @@ function main() {
     adapter = pickAdapter(new URL(location.href), document)
     // Confirmation pages have no form, so they count when this is a known ATS
     // or you filled an application in this tab.
-    const filledHere = Boolean(sessionStorage.getItem(AUTO_KEY))
+    const filledHere = Boolean(autoFill())
     const confirmation = (adapter.name !== 'Other' || filledHere) && adapter.isConfirmation(document, new URL(location.href))
     if (!confirmation && !checkActive()) {
       if (reported) {
@@ -120,12 +136,11 @@ function main() {
     timer = setTimeout(async () => {
       timer = undefined
       await report()
-      const auto = sessionStorage.getItem(AUTO_KEY)
+      const auto = autoFill()
       if (!auto || filling) return
       const fresh = collectFields(document).filter((c) => !done.has(c.desc.zid) && !c.desc.value)
       if (fresh.length >= 2) {
-        const { resumeId } = JSON.parse(auto) as { resumeId: string | null }
-        await run(resumeId, true).catch(() => undefined)
+        await run(auto.resumeId, true).catch(() => undefined)
       }
     }, 900)
   })
@@ -135,8 +150,8 @@ function main() {
   watchAnswers(document, () => {
     clearTimeout(changeTimer)
     changeTimer = setTimeout(() => {
-      const reports = refreshMissing(lastReports)
-      send({ type: 'fill:done', reports, auto: true }).catch(() => undefined)
+      if (!lastReports.length) return
+      send({ type: 'report:update', reports: refreshMissing(lastReports) }).catch(() => undefined)
     }, 400)
   })
 
@@ -151,7 +166,7 @@ function main() {
             posting: await getPosting(),
           } satisfies ScanResult
         case 'fill':
-          sessionStorage.setItem(AUTO_KEY, JSON.stringify({ resumeId: msg.resumeId }))
+          sessionStorage.setItem(AUTO_KEY, JSON.stringify({ resumeId: msg.resumeId, at: Date.now() }))
           active = true
           return { reports: await run(msg.resumeId, false) }
         case 'focus': {
@@ -188,8 +203,8 @@ function main() {
   // Re-entering a multi-page flow on a fresh page load (iCIMS): keep going.
   setTimeout(async () => {
     await report()
-    const auto = sessionStorage.getItem(AUTO_KEY)
-    if (auto && fieldCount() >= 2) await run((JSON.parse(auto) as { resumeId: string | null }).resumeId, true).catch(() => undefined)
+    const auto = autoFill()
+    if (auto && fieldCount() >= 2) await run(auto.resumeId, true).catch(() => undefined)
   }, 1200)
 }
 

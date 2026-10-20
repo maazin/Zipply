@@ -1,5 +1,5 @@
 import type { Adapter } from './types'
-import { genericConfirmation, mapBy } from './types'
+import { genericConfirmation, mapBy, markerConfirmation } from './types'
 import { fetchPosting, textAt } from '../posting'
 
 export const ashby: Adapter = {
@@ -39,5 +39,5 @@ export const ashby: Adapter = {
     }
   },
 
-  isConfirmation: (doc) => Boolean(doc.querySelector('[class*="_success" i], [class*="confirmation" i]')) || genericConfirmation(doc),
+  isConfirmation: (doc) => markerConfirmation(doc, '[class*="_success" i], [class*="confirmation" i]') || genericConfirmation(doc),
 }

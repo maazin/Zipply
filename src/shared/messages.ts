@@ -75,6 +75,8 @@ export type ContentToBg =
   | { type: 'ai:answer'; question: string; maxWords: number }
   | { type: 'submit:confirmed'; ats: AtsName; url: string; posting: Posting | null }
   | { type: 'fill:done'; reports: FieldReport[]; auto: boolean }
+  /** Field states changed after a fill (you edited something); not a fill. */
+  | { type: 'report:update'; reports: FieldReport[] }
 
 // Panel / options → service worker
 export type PageToBg =

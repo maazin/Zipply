@@ -68,15 +68,18 @@ export interface AiResult {
   model: string
 }
 
-/** Run a job down its chain. Returns null when every model is unavailable or spent. */
-export async function runAi(job: Job, system: string, prompt: string, schema?: object): Promise<AiResult | null> {
+/**
+ * Run a job down its chain. Returns null when every model is unavailable or
+ * spent. `accept` rejects an unusable answer so the next model gets a try.
+ */
+export async function runAi(job: Job, system: string, prompt: string, schema?: object, accept: (text: string) => boolean = () => true): Promise<AiResult | null> {
   const s = await getSettings()
   const apiKey = CHAINS[job].some((t) => t !== 'nano') ? await getGeminiKey().catch(() => '') : ''
   for (const tier of CHAINS[job]) {
     try {
       if (tier === 'nano') {
         const text = await runNano(system, prompt, schema)
-        if (text) {
+        if (text && accept(text)) {
           await bump('gemini-nano')
           return { text, model: 'gemini-nano' }
         }
@@ -87,6 +90,7 @@ export async function runAi(job: Job, system: string, prompt: string, schema?: o
       if ((await usageCount(model)) >= s.dailyLimits[tier]) continue
       await bump(model)
       const text = await geminiGenerate({ apiKey, model, system, prompt, schema, temperature: job === 'write' ? 0.6 : 0.1 })
+      if (!accept(text)) continue
       return { text, model }
     } catch (e) {
       if (e instanceof QuotaError) {
@@ -100,20 +104,27 @@ export async function runAi(job: Job, system: string, prompt: string, schema?: o
   return null
 }
 
-export async function runAiJson<T>(job: Job, system: string, prompt: string, schema: object): Promise<{ data: T; model: string } | null> {
-  const r = await runAi(job, system, prompt, schema)
-  if (!r) return null
+export function parseJson<T>(text: string): T | null {
   try {
-    const clean = r.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '')
-    return { data: JSON.parse(clean) as T, model: r.model }
+    return JSON.parse(text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '')) as T
   } catch {
     return null
   }
 }
 
+export async function runAiJson<T>(job: Job, system: string, prompt: string, schema: object): Promise<{ data: T; model: string } | null> {
+  const r = await runAi(job, system, prompt, schema, (t) => parseJson(t) !== null)
+  return r ? { data: parseJson<T>(r.text)!, model: r.model } : null
+}
+
+// Checking Nano spins up a background page, so the answer is kept for 10 minutes.
+let nanoChecked: { at: number; ok: boolean } | null = null
+
 export async function aiReady(): Promise<boolean> {
   const key = await getGeminiKey().catch(() => '')
   if (key) return true
-  const n = await nanoAvailability()
-  return n === 'available'
+  if (nanoChecked && Date.now() - nanoChecked.at < 600_000) return nanoChecked.ok
+  const ok = (await nanoAvailability()) === 'available'
+  nanoChecked = { at: Date.now(), ok }
+  return ok
 }

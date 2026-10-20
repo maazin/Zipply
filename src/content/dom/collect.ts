@@ -110,7 +110,9 @@ function isRequired(el: Element, label: string): boolean {
     (el as HTMLInputElement).required ||
     el.getAttribute('aria-required') === 'true' ||
     /\*\s*$|\(required\)/i.test(label) ||
-    Boolean(el.closest('[class*="required" i]'))
+    // Only the field's own wrapper (two levels), not a whole form styled "required".
+    // Class tokens like "required", "is-required" or "field--required" count.
+    [el.parentElement, el.parentElement?.parentElement].some((n) => n && String(n.className).split(/\s+/).some((t) => /(^|[_-])required$/i.test(t)))
   )
 }
 

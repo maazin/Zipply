@@ -4,7 +4,7 @@
 import type { EducationEntry, FieldReport, Profile, WorkEntry } from '@/shared/types'
 import type { ProfileKey } from '@/shared/profileKeys'
 import type { Adapter, RepeatResult } from './types'
-import { genericConfirmation, mapBy } from './types'
+import { genericConfirmation, mapBy, markerConfirmation } from './types'
 import { collectFields, labelFor, type Collected } from '../dom/collect'
 import { humanPause, setChecked, setCombobox, setText, sleep } from '../dom/setValue'
 import { fetchPosting, textAt } from '../posting'
@@ -183,13 +183,16 @@ async function fillBlock(
   }
 }
 
-async function fillRepeating(profile: Profile, doc: Document): Promise<RepeatResult> {
+async function fillRepeating(profile: Profile, doc: Document, skip: Set<string> = new Set()): Promise<RepeatResult> {
   const reports: FieldReport[] = []
   const handled = new Set<string>()
   const excludeKeys: ProfileKey[] = []
 
+  // A section filled on an earlier pass is left alone, with any edits you made.
+  const filledBefore = (section: HTMLElement) => collectFields(section).some((c) => skip.has(c.desc.zid))
+
   const work = findSection(doc, 'workExperienceSection', /^work experience/i)
-  if (work && profile.work.length) {
+  if (work && profile.work.length && !filledBefore(work)) {
     excludeKeys.push('currentCompany', 'currentTitle')
     const list: WorkEntry[] = profile.work.slice(0, 6)
     const bs = await ensureBlocks(work, /job title|jobTitle/i, list.length)
@@ -200,7 +203,7 @@ async function fillRepeating(profile: Profile, doc: Document): Promise<RepeatRes
   }
 
   const edu = findSection(doc, 'educationSection', /^education/i)
-  if (edu && profile.education.length) {
+  if (edu && profile.education.length && !filledBefore(edu)) {
     excludeKeys.push('school', 'degree', 'major', 'gradYear', 'gpa')
     const list: EducationEntry[] = profile.education.slice(0, 4)
     const bs = await ensureBlocks(edu, /school|university|institution/i, list.length)
@@ -241,7 +244,7 @@ export const workday: Adapter = {
   },
 
   isConfirmation: (doc) =>
-    Boolean(doc.querySelector('[data-automation-id*="congratulation" i], [data-automation-id="applicationSubmitted"]')) || genericConfirmation(doc),
+    markerConfirmation(doc, '[data-automation-id*="congratulation" i], [data-automation-id="applicationSubmitted"]') || genericConfirmation(doc),
 
   fillRepeating,
 }

@@ -1,6 +1,7 @@
 import { db } from './db'
 import { deriveKey, exportKey, fromB64, importKey, newSalt, open, randomKey, seal, toB64, type Sealed } from './crypto'
 import { local, session } from './store'
+import { withLock } from './lock'
 
 interface CryptoMeta {
   mode: 'device' | 'passphrase'
@@ -55,13 +56,19 @@ export async function getKey(): Promise<CryptoKey> {
     cached = await importKey(fromSession)
     return cached
   }
-  const meta = await local.get<CryptoMeta>(META)
+  let meta = await local.get<CryptoMeta>(META)
   if (!meta) {
-    const key = await randomKey()
-    await local.set(META, { mode: 'device', deviceKey: await exportKey(key) } satisfies CryptoMeta)
-    await db.vault.put({ name: 'check', ...(await seal(key, CHECK)) })
-    await cache(key)
-    return key
+    // First run. Several callers can get here at once (and in different pages);
+    // only one may create the key, or data sealed with the others is lost.
+    meta = await withLock('zipply-key', async () => {
+      const existing = await local.get<CryptoMeta>(META)
+      if (existing) return existing
+      const key = await randomKey()
+      const created: CryptoMeta = { mode: 'device', deviceKey: await exportKey(key) }
+      await local.set(META, created)
+      await db.vault.put({ name: 'check', ...(await seal(key, CHECK)) })
+      return created
+    })
   }
   if (meta.mode === 'device' && meta.deviceKey) {
     const key = await importKey(meta.deviceKey)

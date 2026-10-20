@@ -30,6 +30,12 @@ test.beforeAll(async () => {
   await context.route('https://careers.initech.com/**', (route) =>
     route.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'custom.html'), 'utf8') }),
   )
+  await context.route('https://www.hooli.com/careers/apply', (route) =>
+    route.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'custom.html'), 'utf8') }),
+  )
+  await context.route('https://www.hooli.com/thank-you', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<h1>Thank you for applying!</h1><p>We will be in touch.</p>' }),
+  )
   await context.route('https://shop.example.com/**', (route) =>
     route.fulfill({
       contentType: 'text/html',
@@ -196,6 +202,60 @@ test('Detects and fills an application on a site with no adapter', async () => {
   await late.click('#apply')
   await expect.poll(() => badgeFor('https://www.umbrella.org/*'), { timeout: 10_000 }).toBe(' ')
   await late.close()
+})
+
+test('Logs a submit that redirects to a different thank-you address', async () => {
+  const unlogged = () =>
+    worker.evaluate(
+      () =>
+        new Promise<number>((res) => {
+          const r = indexedDB.open('zipply')
+          r.onsuccess = () => {
+            const q = r.result.transaction('unlogged').objectStore('unlogged').count()
+            q.onsuccess = () => res(q.result)
+          }
+        }),
+    )
+  const page = await context.newPage()
+
+  // Typing in a field yourself is not a Zipply fill: leaving doesn't flag it.
+  await page.goto('https://www.hooli.com/careers/apply')
+  await page.waitForTimeout(1500)
+  const before = await unlogged()
+  await page.fill('input[name="pc"]', '10001')
+  await page.locator('input[name="pc"]').blur()
+  await page.waitForTimeout(800)
+  await page.goto('https://shop.example.com/checkout')
+  await page.waitForTimeout(800)
+  expect(await unlogged()).toBe(before)
+
+  // Fill, submit, land on /thank-you: the job is logged (queued, Google isn't connected here).
+  await page.goto('https://www.hooli.com/careers/apply')
+  await expect
+    .poll(
+      async () =>
+        worker.evaluate(async () => {
+          const [tab] = await chrome.tabs.query({ url: 'https://www.hooli.com/*' })
+          return Boolean(tab && (await chrome.storage.session.get(`frames:${tab.id}`))[`frames:${tab.id}`])
+        }),
+      { timeout: 10_000 },
+    )
+    .toBe(true)
+  await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: 'https://www.hooli.com/*' })
+    await chrome.tabs.sendMessage(tab.id!, { type: 'fill', resumeId: null }, { frameId: 0 })
+  })
+  await expect(page.locator('input[name="applicant_given"]')).toHaveValue('Ada')
+  await page.goto('https://www.hooli.com/thank-you')
+  const opts = await context.newPage()
+  await expect
+    .poll(async () => {
+      await opts.goto(`chrome-extension://${extId}/src/options/index.html#connections`)
+      return (await opts.locator('#connections').innerText()).includes('Initech: Junior Data Engineer')
+    }, { timeout: 15_000 })
+    .toBe(true)
+  await opts.close()
+  await page.close()
 })
 
 test('Scans a Lever posting and the side panel renders', async () => {

@@ -8,6 +8,7 @@ import { db } from './db'
 import { getKey, resetKeys } from './keys'
 import { open, seal } from './crypto'
 import { local } from './store'
+import { withLock } from './lock'
 
 // ---------- Settings ----------
 
@@ -16,10 +17,13 @@ export async function getSettings(): Promise<Settings> {
   return { ...DEFAULT_SETTINGS, ...s, models: { ...DEFAULT_SETTINGS.models, ...s?.models }, dailyLimits: { ...DEFAULT_SETTINGS.dailyLimits, ...s?.dailyLimits } }
 }
 
-export async function updateSettings(patch: Partial<Settings>): Promise<Settings> {
-  const next = { ...(await getSettings()), ...patch }
-  await local.set('settings', next)
-  return next
+/** Merge a change into the settings. Locked, so two pages can't undo each other's writes. */
+export function updateSettings(patch: Partial<Settings>): Promise<Settings> {
+  return withLock('zipply-settings', async () => {
+    const next = { ...(await getSettings()), ...patch }
+    await local.set('settings', next)
+    return next
+  })
 }
 
 // ---------- Profile ----------

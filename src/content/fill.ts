@@ -30,7 +30,8 @@ function isQuestion(c: Collected): boolean {
   return c.desc.kind === 'text' && (label.trim().endsWith('?') || label.split(' ').length >= 7)
 }
 
-const SENSITIVE_Q = /salary|compensation|pay|sponsor|visa|authori[sz]ed|citizen|gender|race|ethnic|veteran|disabilit|criminal|convicted|age|birth|ssn|social security/i
+/** Questions never drafted by AI. Whole words, so "managed" or "page" don't count as "age". */
+export const SENSITIVE_Q = /\b(salary|salaries|compensation|pay|pay rate|sponsor\w*|visa|authori[sz]ed|authori[sz]ation|citizen\w*|gender|race|ethnicity|ethnic|veteran|disabilit\w*|criminal|convicted|conviction|age|date of birth|birth|ssn|social security)\b/i
 
 async function apply(c: Collected, item: PlanItem, ctx: FillContext): Promise<{ status: FieldStatus; reason?: string }> {
   const el = c.el as HTMLElement
@@ -66,7 +67,8 @@ async function apply(c: Collected, item: PlanItem, ctx: FillContext): Promise<{ 
       return { status: item.status === 'filled' && item.source !== 'ai-map' ? 'filled' : 'low' }
     }
     default:
-      setText(el, item.value ?? '')
+      // input[type=month] only accepts YYYY-MM.
+      setText(el, (el as HTMLInputElement).type === 'month' ? (item.value ?? '').slice(0, 7) : item.value ?? '')
   }
   return { status: item.status === 'skipped' ? 'low' : item.status }
 }
@@ -97,7 +99,7 @@ export function refreshMissing(reports: FieldReport[], doc: Document = document)
 export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document = document, skip: Set<string> = new Set()): Promise<FieldReport[]> {
   const reports: FieldReport[] = []
 
-  const repeat = adapter.fillRepeating ? await adapter.fillRepeating(ctx.profile, doc) : null
+  const repeat = adapter.fillRepeating ? await adapter.fillRepeating(ctx.profile, doc, skip) : null
   if (repeat) reports.push(...repeat.reports)
 
   const all = collectFields(doc).filter((c) => !skip.has(c.desc.zid) && !repeat?.handled.has(c.desc.zid))

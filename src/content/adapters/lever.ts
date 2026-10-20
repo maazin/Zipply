@@ -1,5 +1,5 @@
 import type { Adapter } from './types'
-import { genericConfirmation, mapBy } from './types'
+import { genericConfirmation, mapBy, markerConfirmation } from './types'
 import { fetchPosting, textAt } from '../posting'
 
 export const lever: Adapter = {
@@ -51,5 +51,5 @@ export const lever: Adapter = {
     }
   },
 
-  isConfirmation: (doc, url) => /\/thanks\/?$/.test(url.pathname) || Boolean(doc.querySelector('.application-confirmation, [data-qa="msg-submit-success"]')) || genericConfirmation(doc),
+  isConfirmation: (doc, url) => /\/thanks\/?$/.test(url.pathname) || markerConfirmation(doc, '.application-confirmation, [data-qa="msg-submit-success"]') || genericConfirmation(doc),
 }

@@ -1,5 +1,5 @@
 import type { Adapter } from './types'
-import { genericConfirmation, mapBy } from './types'
+import { genericConfirmation, mapBy, markerConfirmation } from './types'
 import { textAt } from '../posting'
 
 // iCIMS field names vary by company, but the PersonProfileFields / rcf names and
@@ -40,5 +40,5 @@ export const icims: Adapter = {
     }
   },
 
-  isConfirmation: (doc) => Boolean(doc.querySelector('.iCIMS_ThankYou, #iCIMS_ThankYouMessage')) || genericConfirmation(doc),
+  isConfirmation: (doc) => markerConfirmation(doc, '.iCIMS_ThankYou, #iCIMS_ThankYouMessage') || genericConfirmation(doc),
 }

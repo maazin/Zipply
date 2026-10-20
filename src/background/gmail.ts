@@ -118,7 +118,9 @@ export async function syncGmail(): Promise<SyncResult> {
       const m = await gfetch<Message>(`${API}/messages/${id}?format=full`, S)
       const email = { from: header(m, 'From'), subject: header(m, 'Subject'), body: await bodyText(m) }
       const date = todayISO(new Date(Number(m.internalDate)))
-      const open = await db.applied.toArray()
+      // Only applications in the search window, and only ones that existed when
+      // the email was sent: an old rejection must not close a new application.
+      const open = (await db.applied.toArray()).filter((a) => (!a.dateApplied || a.dateApplied >= cutoff) && (!a.dateApplied || a.dateApplied <= date))
       const { entry, candidates } = matchApplication(email, open)
       let status = classifyEmail(email.subject, email.body)
 
@@ -143,7 +145,10 @@ export async function syncGmail(): Promise<SyncResult> {
           } else if (t.kind === 'conflict') {
             await addEvent({ appId: entry.appId, company: entry.company, title: entry.title, from: entry.status, to: status, at: Date.now(), kind: 'conflict', note: t.reason })
           } else if (!entry.firstReply) {
+            // No status change, but this is their first reply: record it in the sheet too.
             await db.applied.update(entry.key, { firstReply: date })
+            const update = { appId: entry.appId, status: entry.status, firstReply: date, lastStatusChange: entry.lastStatusChange || date }
+            await writeStatus(update).catch((e) => enqueue('status', update, e instanceof Error ? e.message : String(e)))
           }
         }
       }
