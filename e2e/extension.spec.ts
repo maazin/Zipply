@@ -23,6 +23,23 @@ test.beforeAll(async () => {
   await context.route('https://boards.greenhouse.io/**', (route) =>
     route.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'greenhouse.html'), 'utf8') }),
   )
+  await context.route('https://careers.initech.com/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'custom.html'), 'utf8') }),
+  )
+  await context.route('https://shop.example.com/**', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<h1>Checkout</h1><form><label>Full name <input name=name></label><label>Email <input type=email></label><label>Address <input name=address></label><button>Pay now</button></form>',
+    }),
+  )
+  await context.route('https://www.umbrella.org/**', (route) => {
+    const form = readFileSync(join(FIX, 'custom.html'), 'utf8').match(/<form>[\s\S]*<\/form>/)![0]
+    route.fulfill({
+      contentType: 'text/html',
+      body: `<h1>Open roles</h1><button id="apply">Apply now</button><div id="slot"></div>
+        <script>document.getElementById('apply').onclick = () => { document.getElementById('slot').innerHTML = ${JSON.stringify(form)} }</script>`,
+    })
+  })
   await context.route('https://jobs.lever.co/**', (route) =>
     route.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'lever.html'), 'utf8') }),
   )
@@ -115,6 +132,39 @@ test('Fills a Greenhouse form on its real hostname', async () => {
   await expect(panel.getByText('Data Analyst I')).toBeVisible()
   await panel.close()
   await page.close()
+})
+
+test('Detects and fills an application on a site with no adapter', async () => {
+  const badgeFor = (pattern: string) =>
+    worker.evaluate(async (p) => {
+      const [tab] = await chrome.tabs.query({ url: p })
+      return chrome.action.getBadgeText({ tabId: tab.id })
+    }, pattern)
+
+  const shop = await context.newPage()
+  await shop.goto('https://shop.example.com/checkout')
+  const job = await context.newPage()
+  await job.goto('https://careers.initech.com/jobs/42')
+  await expect.poll(() => badgeFor('https://careers.initech.com/*'), { timeout: 10_000 }).toBe(' ')
+  expect(await badgeFor('https://shop.example.com/*')).toBe('')
+
+  await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: 'https://careers.initech.com/*' })
+    await chrome.tabs.sendMessage(tab.id!, { type: 'fill', resumeId: null }, { frameId: 0 })
+  })
+  await expect(job.locator('input[name="applicant_given"]')).toHaveValue('Ada')
+  await expect(job.locator('input[name="contact"]')).toHaveValue('ada@example.com')
+  await shop.close()
+  await job.close()
+
+  // A form that only appears after clicking "Apply" is picked up too.
+  const late = await context.newPage()
+  await late.goto('https://www.umbrella.org/careers')
+  await late.waitForTimeout(1500)
+  expect(await badgeFor('https://www.umbrella.org/*')).toBe('')
+  await late.click('#apply')
+  await expect.poll(() => badgeFor('https://www.umbrella.org/*'), { timeout: 10_000 }).toBe(' ')
+  await late.close()
 })
 
 test('Scans a Lever posting and the side panel renders', async () => {

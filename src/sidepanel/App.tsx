@@ -28,22 +28,27 @@ async function tabState(tabId: number) {
   return send<{ frames: FrameInfo[]; job: JobContext | null; queue: number; settings: Settings }>({ type: 'tab:state', tabId })
 }
 
-/** Inject the content script on sites without an adapter (activeTab or a granted origin). */
-async function ensureInjected(tabId: number): Promise<boolean> {
-  const { frames } = await tabState(tabId)
-  if (frames.length) return true
+/**
+ * Every frame in the tab, with the content script running in each. It's
+ * declared for all sites, but pages opened before Zipply was installed or
+ * reloaded don't have it yet, so it's injected where missing.
+ */
+async function ensureInjected(tabId: number): Promise<number[] | null> {
   try {
-    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: [contentScript] })
-    await new Promise((r) => setTimeout(r, 400))
-    return true
+    const probe = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: () => Boolean((window as { __zipply?: boolean }).__zipply) })
+    const missing = probe.filter((r) => !r.result).map((r) => r.frameId)
+    if (missing.length) {
+      await chrome.scripting.executeScript({ target: { tabId, frameIds: missing }, files: [contentScript] })
+      await new Promise((r) => setTimeout(r, 400))
+    }
+    return probe.map((r) => r.frameId)
   } catch {
-    return false
+    return null
   }
 }
 
-async function scanFrames(tabId: number): Promise<{ frames: (FrameInfo & { scan: ScanResult | null })[]; posting: Posting | null; ats: ScanResult['ats'] }> {
-  let { frames } = await tabState(tabId)
-  if (!frames.length) frames = [{ frameId: 0, ats: 'Other', fields: 0, confirmation: false, url: '' }]
+async function scanFrames(tabId: number, frameIds: number[]): Promise<{ frames: (FrameInfo & { scan: ScanResult | null })[]; posting: Posting | null; ats: ScanResult['ats'] }> {
+  const frames: FrameInfo[] = frameIds.map((frameId) => ({ frameId, ats: 'Other', fields: 0, confirmation: false, url: '' }))
   const scanned = await Promise.all(frames.map(async (f) => ({ ...f, scan: await sendToFrame<ScanResult>(tabId, f.frameId, { type: 'scan' }).catch(() => null) })))
   const withPosting = scanned.filter((f) => f.scan?.posting).sort((a, b) => (b.scan!.posting!.description.length || 0) - (a.scan!.posting!.description.length || 0))
   const formFrame = [...scanned].sort((a, b) => (b.scan?.fields ?? 0) - (a.scan?.fields ?? 0))[0]
@@ -80,8 +85,9 @@ export function App() {
     const t = await activeTab()
     setTab(t)
     if (!t?.id || !/^https?:/.test(t.url ?? '')) return setPhase('unsupported')
-    if (!(await ensureInjected(t.id))) return setPhase('permission')
-    const scan = await scanFrames(t.id)
+    const frameIds = await ensureInjected(t.id)
+    if (!frameIds) return setPhase('permission')
+    const scan = await scanFrames(t.id, frameIds)
     setFrames(scan.frames)
     setAts(scan.ats)
     setPosting(scan.posting)
@@ -185,7 +191,7 @@ export function App() {
       <Shell>
         <Card className="p-5">
           <h2 className="text-base font-semibold">Allow Zipply on this site</h2>
-          <p className="mt-1 text-sm text-muted">This form isn't on a site Zipply knows. Allow it to read and fill this page.</p>
+          <p className="mt-1 text-sm text-muted">Chrome's site access for Zipply is limited on this page. Allow it to read and fill this site.</p>
           <Button
             variant="primary"
             className="mt-4 w-full"
@@ -499,7 +505,8 @@ function CoverLetter({ tabId }: { tabId: number }) {
       <div className="mt-2 flex gap-2">
         <Button size="sm" onClick={() => navigator.clipboard.writeText(text).then(() => setNote('Copied'))}>Copy</Button>
         <Button size="sm" onClick={async () => {
-          const frames = (await tabState(tabId)).frames
+          const known = (await tabState(tabId)).frames
+          const frames = known.length ? known : [{ frameId: 0 }]
           for (const f of frames) {
             const r = await sendToFrame<{ ok: boolean }>(tabId, f.frameId, { type: 'insert', text, target: 'cover-letter' }).catch(() => null)
             if (r?.ok) return setNote('Inserted')

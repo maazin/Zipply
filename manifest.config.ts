@@ -2,16 +2,16 @@ import { defineManifest } from '@crxjs/vite-plugin'
 import { loadEnv } from 'vite'
 import pkg from './package.json'
 
-// Hosts with a dedicated adapter. Content scripts run here automatically; on any
-// other site they are injected only when you open the panel (activeTab).
-export const ATS_MATCHES = [
-  'https://*.myworkdayjobs.com/*',
-  'https://*.myworkday.com/*',
-  'https://*.icims.com/*',
-  'https://boards.greenhouse.io/*',
-  'https://job-boards.greenhouse.io/*',
-  'https://jobs.lever.co/*',
-  'https://jobs.ashbyhq.com/*',
+// Zipply runs on every site (it stays idle unless a page looks like an
+// application). These are skipped entirely.
+const EXCLUDED = [
+  'https://mail.google.com/*',
+  'https://docs.google.com/*',
+  'https://drive.google.com/*',
+  'https://calendar.google.com/*',
+  'https://meet.google.com/*',
+  'https://*.youtube.com/*',
+  'https://accounts.google.com/*',
 ]
 
 // Network lock: extension pages and the service worker may only reach Google's
@@ -67,7 +67,8 @@ export default defineManifest((env) => {
     },
     content_scripts: [
       {
-        matches: ATS_MATCHES,
+        matches: ['https://*/*', 'http://*/*'],
+        exclude_matches: EXCLUDED,
         js: ['src/content/index.ts'],
         run_at: 'document_idle',
         all_frames: true,
@@ -85,8 +86,7 @@ export default defineManifest((env) => {
       'offscreen',
       'identity.email',
     ],
-    host_permissions: ATS_MATCHES,
-    optional_host_permissions: ['https://*/*'],
+    host_permissions: ['https://*/*', 'http://*/*'],
     oauth2: {
       client_id: clientId,
       scopes: ['https://www.googleapis.com/auth/drive.file'],

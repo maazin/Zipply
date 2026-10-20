@@ -186,6 +186,8 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
       // Prefer what the confirmation page says if it names a different job.
       if (p && (p.company || p.title) && (!job || (p.jobId && p.jobId !== job.posting.jobId))) job = { ...(job ?? bareContext(msg.ats, msg.url, p)), posting: { ...(job?.posting ?? p), ...stripEmpty(p) } }
       if (!job) return { ok: false, error: 'No job context' }
+      // On sites without an adapter, a "thank you" page only counts after a fill.
+      if (msg.ats === 'Other' && !job.filledAt) return { ok: false, error: 'Not filled by Zipply' }
       const res = await logJob(job)
       if (res.ok && res.appId) await setJob(tabId, { ...job, loggedAppId: res.appId })
       chrome.runtime.sendMessage({ type: 'logged', tabId, result: res }).catch(() => undefined)

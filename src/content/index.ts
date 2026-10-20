@@ -11,6 +11,7 @@ import { collectFields, findByZid } from './dom/collect'
 import { flash, setText } from './dom/setValue'
 import { fillPage, lastReports, refreshMissing, tracked, watchAnswers } from './fill'
 import { genericPosting, mergePosting, postingFromJsonLd } from './posting'
+import { detectApplication } from './detect'
 
 declare global {
   interface Window {
@@ -27,6 +28,15 @@ function main() {
   let lastStatus = ''
   let filling = false
   const done = new Set<string>()
+  // Zipply runs on every site but stays idle until the page looks like an
+  // application (or you filled here earlier in this tab).
+  let active = false
+  let reported = false
+
+  function checkActive(): boolean {
+    if (!active) active = Boolean(sessionStorage.getItem(AUTO_KEY)) || detectApplication(document, new URL(location.href)).isApplication
+    return active
+  }
 
   async function getPosting(): Promise<Posting | null> {
     const key = canonicalUrl(location.href)
@@ -44,7 +54,19 @@ function main() {
 
   async function report() {
     adapter = pickAdapter(new URL(location.href), document)
-    const confirmation = adapter.isConfirmation(document, new URL(location.href))
+    // Confirmation pages have no form, so they count when this is a known ATS
+    // or you filled an application in this tab.
+    const filledHere = Boolean(sessionStorage.getItem(AUTO_KEY))
+    const confirmation = (adapter.name !== 'Other' || filledHere) && adapter.isConfirmation(document, new URL(location.href))
+    if (!confirmation && !checkActive()) {
+      if (reported) {
+        reported = false
+        lastStatus = ''
+        send({ type: 'frame:status', ats: adapter.name, fields: 0, confirmation: false, posting: null }).catch(() => undefined)
+      }
+      return
+    }
+    reported = true
     const fields = confirmation ? 0 : fieldCount()
     const status = `${adapter.name}|${fields}|${confirmation}|${location.href}`
     if (status !== lastStatus) {
@@ -80,10 +102,23 @@ function main() {
   }
 
   // Multi-page flows: when a new step renders, fill the new fields too.
+  // Idle pages are re-checked at most every 2 s, so busy sites stay fast.
   let timer: ReturnType<typeof setTimeout> | undefined
+  let lastIdleCheck = 0
   const observer = new MutationObserver(() => {
+    if (!active && !reported) {
+      if (timer) return
+      const wait = Math.max(0, 2000 - (Date.now() - lastIdleCheck))
+      timer = setTimeout(async () => {
+        timer = undefined
+        lastIdleCheck = Date.now()
+        await report()
+      }, wait)
+      return
+    }
     clearTimeout(timer)
     timer = setTimeout(async () => {
+      timer = undefined
       await report()
       const auto = sessionStorage.getItem(AUTO_KEY)
       if (!auto || filling) return
@@ -117,6 +152,7 @@ function main() {
           } satisfies ScanResult
         case 'fill':
           sessionStorage.setItem(AUTO_KEY, JSON.stringify({ resumeId: msg.resumeId }))
+          active = true
           return { reports: await run(msg.resumeId, false) }
         case 'focus': {
           const el = findByZid(msg.zid)

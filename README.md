@@ -29,6 +29,9 @@ No server. Your data stays in this browser and your own Google account.
 
 ### Filling a page
 
+Zipply is active on any site whose page looks like a job application, including forms that only appear after you click Apply. If a page isn't detected, opening the panel scans it anyway.
+
+
 1. **Adapter mappings.** Each ATS module keys on stable markup (`data-automation-id` on Workday, `job_application[...]` on Greenhouse, `urls[LinkedIn]` on Lever, `_systemfield_*` on Ashby, `PersonProfileFields.*` on iCIMS).
 2. **Repeating sections.** On Workday, one work-history and education block is added per entry, including month/year date inputs.
 3. **Rules and the answer bank.** Every other input is scored against every profile field using weighted signals: `autocomplete` 1.00, `<label>` 0.97, `aria-label` 0.93, `name` 0.86, `id`/placeholder 0.80, nearby text 0.62, plus a synonym dictionary ("Surname" = "Last name"). Fields and profile values are paired across the whole form at once with the Hungarian algorithm, so two fields can't both claim "Phone". Questions you've answered before come from the answer bank.
@@ -100,7 +103,7 @@ The **Dashboard** tab is built from formulas when the sheet is created: applicat
 
 - Profile, resumes, answer bank and the Gemini key are encrypted with AES-GCM. Set a passphrase on the Profile page and the key is derived from it (PBKDF2, 310k iterations) and kept only in session memory. Without one, a random device key is used.
 - OAuth tokens are managed by `chrome.identity` and never written to storage by Zipply.
-- Content scripts run automatically only on the five ATS hosts. Anywhere else, they run only when you open the panel on that page (`activeTab`), or after you allow a site.
+- Zipply runs on every site, so Chrome asks to "read and change all your data on all websites". On each page it does one cheap check for application signals (a resume upload, job or apply wording, name and email fields). Pages that fail it get nothing more: no form reading, no messages, no dot. Nothing leaves the browser unless you fill. Gmail, Docs, Drive, Calendar, Meet, YouTube and Google sign-in are skipped entirely.
 - **AI data rules.** Google's free API tier may use prompts to improve its products, so nothing personal goes to it. Field mapping sends labels only. Writing prompts carry a redacted profile with no name, contact details, address, EEO answers or salary. Resume text and email content go to Gemini Nano on the laptop only, unless you turn on the cloud fallback for unclear emails. Postings are treated as untrusted input and passed as quoted data.
 - **Network lock.** The production content security policy only allows connections to Google's OAuth, Sheets, Gmail and Gemini endpoints.
 - Export and delete-all buttons are on the Profile page.
