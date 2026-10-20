@@ -22,12 +22,14 @@ export function Connections() {
   const [msg, setMsg] = useState('')
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof usageToday>>>([])
   const [nano, setNano] = useState<NanoStatus>('unsupported')
+  const [queue, setQueue] = useState<{ id: number; label: string; attempts: number; lastError: string }[]>([])
 
   const refresh = useCallback(async () => {
     setS(await getSettings())
     setKey(await getGeminiKey().catch(() => ''))
     setUsage(await usageToday())
     setNano(await nanoStatus())
+    setQueue(await send<typeof queue>({ type: 'queue:list' }).catch(() => []))
   }, [])
   useEffect(() => {
     refresh()
@@ -71,6 +73,26 @@ export function Connections() {
             </div>
           )}
         </div>
+
+        {queue.length > 0 && (
+          <div className="rounded-lg border border-warn/40 p-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-warn">
+                {queue.length} {queue.length === 1 ? 'application is' : 'applications are'} waiting to reach your sheet
+              </span>
+              <Button size="sm" disabled={!!busy} onClick={() => run('flush', () => send({ type: 'queue:flush' }))}>
+                {busy === 'flush' && <Spinner />} Retry now
+              </Button>
+            </div>
+            <ul className="mt-2 flex flex-col gap-1 text-xs text-muted">
+              {queue.map((q) => (
+                <li key={q.id}>
+                  <span className="text-ink">{q.label}</span> · tried {q.attempts}× · {q.lastError}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div>
           <Toggle

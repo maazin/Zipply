@@ -178,6 +178,13 @@ function main() {
     return true
   })
 
+  // Check right away: a confirmation page may be closed within a second.
+  void report()
+  // And as the tab closes or goes to the background, in case it changed since.
+  const lastLook = () => void report()
+  addEventListener('pagehide', lastLook)
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && lastLook())
+
   // Re-entering a multi-page flow on a fresh page load (iCIMS): keep going.
   setTimeout(async () => {
     await report()

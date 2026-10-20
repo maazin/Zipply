@@ -23,6 +23,10 @@ test.beforeAll(async () => {
   await context.route('https://boards.greenhouse.io/**', (route) =>
     route.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'greenhouse.html'), 'utf8') }),
   )
+  // Registered after the general Greenhouse route, so it wins for this path.
+  await context.route('https://boards.greenhouse.io/globex/jobs/4012345/confirmation', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<div id="application_confirmation"><h1>Thank you for applying to Globex!</h1></div>' }),
+  )
   await context.route('https://careers.initech.com/**', (route) =>
     route.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'custom.html'), 'utf8') }),
   )
@@ -131,6 +135,33 @@ test('Fills a Greenhouse form on its real hostname', async () => {
   await expect(panel.getByText('Filled but not logged')).toBeVisible({ timeout: 10_000 })
   await expect(panel.getByText('Data Analyst I')).toBeVisible()
   await panel.close()
+  await page.close()
+})
+
+test('Logs a submitted application and shows it waiting for the sheet', async () => {
+  const page = await context.newPage()
+  await page.goto('https://boards.greenhouse.io/globex/jobs/4012345')
+  await expect
+    .poll(async () => worker.evaluate(async () => Object.keys(await chrome.storage.session.get(null)).some((k) => k.startsWith('job:'))), { timeout: 10_000 })
+    .toBe(true)
+  await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: 'https://boards.greenhouse.io/*' })
+    await chrome.tabs.sendMessage(tab.id!, { type: 'fill', resumeId: null }, { frameId: 0 })
+  })
+  await expect(page.locator('#first_name')).toHaveValue('Ada')
+
+  // Submitting reaches the confirmation page: the job is logged. Google isn't
+  // connected here, so it waits in the queue, and the Profile page says so.
+  await page.goto('https://boards.greenhouse.io/globex/jobs/4012345/confirmation')
+  const opts = await context.newPage()
+  await expect
+    .poll(async () => {
+      await opts.goto(`chrome-extension://${extId}/src/options/index.html#connections`)
+      return opts.getByText('1 application is waiting to reach your sheet').count()
+    }, { timeout: 15_000 })
+    .toBe(1)
+  await expect(opts.locator('#connections')).toContainText('Globex: Data Analyst I')
+  await opts.close()
   await page.close()
 })
 

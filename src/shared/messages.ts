@@ -91,6 +91,7 @@ export type PageToBg =
   | { type: 'status:assign'; messageId: string; appId: string; status: string }
   | { type: 'log:unlogged'; id: string }
   | { type: 'queue:flush' }
+  | { type: 'queue:list' }
   | { type: 'applied:refresh' }
 
 // Panel → content script

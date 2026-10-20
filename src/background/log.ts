@@ -7,7 +7,6 @@ import { todayISO } from '@/shared/text'
 import { appliedKey, buildAppliedSet, canonicalUrl } from '@/core/score/applied'
 import { entryFromRecord } from '@/core/sheets/layout'
 import { db } from '@/lib/db'
-import { getSettings } from '@/lib/repo'
 import { appendRecord } from './sheets'
 import { enqueue } from './queue'
 import { NotConnectedError } from './google'
@@ -81,11 +80,6 @@ export async function logJob(job: JobContext): Promise<LogResult> {
   // Record locally first, so the already-applied check works even offline.
   await db.applied.put(entry)
 
-  const settings = await getSettings()
-  if (!settings.sheetId && !settings.googleEmail) {
-    await enqueue('append', rec, 'Google not connected yet')
-    return { ok: true, queued: true, appId: rec.appId }
-  }
   try {
     const row = await appendRecord(rec)
     if (row) await db.applied.update(entry.key, { row })

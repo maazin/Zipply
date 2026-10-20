@@ -48,10 +48,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 })
 
 async function backgroundRefresh() {
-  const s = await getSettings()
-  if (!s.googleEmail) return
+  // Retry queued writes even if sign-in never finished; a silent token works
+  // once you've granted access, and otherwise they keep waiting.
   await flushQueue().catch(() => undefined)
-  await refreshApplied().catch(() => undefined)
+  const s = await getSettings()
+  if (s.googleEmail || s.sheetId) await refreshApplied().catch(() => undefined)
 }
 
 // ---------- Per-tab state ----------
@@ -258,6 +259,14 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
     }
     case 'queue:flush':
       return flushQueue()
+    case 'queue:list':
+      return (await db.queue.orderBy('createdAt').toArray()).map((q) => ({
+        id: q.id,
+        op: q.op,
+        label: q.op === 'append' ? `${(q.payload as { company: string; title: string }).company}: ${(q.payload as { title: string }).title}` : 'Status update',
+        attempts: q.attempts,
+        lastError: q.lastError,
+      }))
     case 'applied:refresh':
       return { rows: (await refreshApplied()).length }
   }
