@@ -13,7 +13,7 @@ export function AnswerBank() {
   }, [refresh])
   const shown = list.filter((e) => !q || (e.label + ' ' + e.answer).toLowerCase().includes(q.toLowerCase()))
   return (
-    <Section id="bank" title="Answer bank" intro="Questions you answer by hand on real forms land here, and the next form with a similar question fills itself. AI drafts you keep are saved too, so the same question never costs a second call.">
+    <Section id="bank" title="Answer bank" intro="Questions you answer by hand on real forms land here, and the next form with a similar question fills itself. AI drafts you keep are saved too, so the same question never costs a second call. When you fix something Zipply filled, your version is kept for that site and used there next time.">
       {list.length > 4 && <Input placeholder="Search answers" value={q} onChange={(e) => setQ(e.target.value)} className="mb-4" />}
       {shown.length === 0 && <Empty>Nothing saved yet.</Empty>}
       <ul className="flex flex-col gap-4">
@@ -23,6 +23,7 @@ export function AnswerBank() {
               <Input value={e.label} onChange={(ev) => setList((l) => l.map((x) => (x.id === e.id ? { ...x, label: ev.target.value } : x)))} onBlur={() => updateAnswer(list.find((x) => x.id === e.id)!)} className="font-medium" />
               <div className="flex shrink-0 items-center gap-2">
                 {e.source === 'ai' && <Chip>AI draft</Chip>}
+                {e.source === 'correction' && <Chip title="You fixed what Zipply filled; used only on this site">Fix for {e.host}</Chip>}
                 <span className="text-xs text-muted">used {e.uses}×</span>
                 <Button size="sm" variant="danger" onClick={async () => { await deleteAnswer(e.id); refresh() }}>Delete</Button>
               </div>

@@ -136,6 +136,9 @@ export function Connections() {
           <div className="mt-4">
             <Toggle checked={s.autoDraft} label="Draft open-ended answers while filling" hint="Drafts are marked in the panel and never submitted without your edit." onChange={(v) => patch({ autoDraft: v })} />
           </div>
+          <div className="mt-3">
+            <Toggle checked={s.listingScores} label="Show match scores on LinkedIn and Indeed" hint="When you open a job in the results, a small score appears by its title and on its card. Scored on this laptop; nothing is fetched in the background." onChange={(v) => patch({ listingScores: v })} />
+          </div>
           <div className="mt-4">
             <div className="text-[13px] font-medium">Calls today</div>
             <ul className="mt-1 flex flex-col gap-0.5 text-sm text-muted">

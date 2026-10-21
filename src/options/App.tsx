@@ -15,10 +15,12 @@ import { Filters } from './sections/Filters'
 import { Writing } from './sections/Writing'
 import { Connections } from './sections/Connections'
 import { Privacy } from './sections/Privacy'
+import { Status } from './sections/Status'
 
 export type Update = (fn: (p: Profile) => Profile) => void
 
 const NAV = [
+  ['status', 'Status'],
   ['basics', 'Basics'],
   ['experience', 'Experience'],
   ['education', 'Education'],
@@ -128,6 +130,7 @@ export function App() {
           <p className="mt-1 text-sm text-muted">Entered once, used on every application. Everything stays in this browser, encrypted.</p>
         </header>
 
+        <Status />
         <ResumeDrop profile={profile} update={update} />
         <Basics profile={profile} update={update} />
         <Experience profile={profile} update={update} />

@@ -69,6 +69,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sheetId: '',
   sheetUrl: '',
   sheetReady: false,
+  listingScores: true,
   googleEmail: '',
   gmailEnabled: false,
   lastGmailSync: 0,

@@ -150,7 +150,7 @@ export async function saveAnswer(entry: Omit<AnswerBankEntry, 'id' | 'labelNorm'
   const bank = await getAnswerBank()
   const next = upsertAnswer(bank, { ...entry, id: entry.id ?? uid(8) })
   const labelNorm = normalizeLabel(entry.label)
-  const changed = next.find((e) => e.labelNorm === labelNorm)
+  const changed = next.find((e) => e.labelNorm === labelNorm && (e.source === 'correction') === (entry.source === 'correction') && (entry.source !== 'correction' || e.host === entry.host))
   if (changed) await putAnswer(changed)
 }
 

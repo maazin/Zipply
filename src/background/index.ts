@@ -15,6 +15,9 @@ import { ensureSheet, refreshApplied } from './sheets'
 import { flushQueue, queueSize } from './queue'
 import { bareContext, logJob } from './log'
 import { assignEmail, messageSummary, syncGmail } from './gmail'
+import { diagnostics, healthChecks } from './health'
+import { runChecks } from '@/lib/checks'
+import { clearErrors, logError } from '@/lib/errlog'
 
 const QUEUE_ALARM = 'zipply-queue'
 const GMAIL_ALARM = 'zipply-gmail'
@@ -35,7 +38,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
   await backgroundRefresh()
   // Also check Gmail when the browser opens, not only every 2 hours.
-  await syncGmail().catch(() => undefined)
+  await syncGmail().catch((e) => logError('gmail sync', e))
 })
 
 chrome.contextMenus.onClicked.addListener((info) => {
@@ -43,16 +46,16 @@ chrome.contextMenus.onClicked.addListener((info) => {
 })
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === QUEUE_ALARM) await flushQueue().catch(() => undefined)
-  if (alarm.name === GMAIL_ALARM) await syncGmail().catch((e) => console.warn('[zipply] gmail sync', e))
+  if (alarm.name === QUEUE_ALARM) await flushQueue().catch((e) => logError('queue', e))
+  if (alarm.name === GMAIL_ALARM) await syncGmail().catch((e) => logError('gmail sync', e))
 })
 
 async function backgroundRefresh() {
   // Retry queued writes even if sign-in never finished; a silent token works
   // once you've granted access, and otherwise they keep waiting.
-  await flushQueue().catch(() => undefined)
+  await flushQueue().catch((e) => logError('queue', e))
   const s = await getSettings()
-  if (s.googleEmail || s.sheetId) await refreshApplied().catch(() => undefined)
+  if (s.googleEmail || s.sheetId) await refreshApplied().catch((e) => logError('refresh sheet', e))
 }
 
 // ---------- Per-tab state ----------
@@ -112,6 +115,9 @@ chrome.tabs.onUpdated.addListener(async (tabId, info) => {
 
 // ---------- Messages ----------
 
+/** Listing scores, kept 10 minutes so flipping between jobs is instant. */
+const scoreCache = new Map<string, { at: number; result: object }>()
+
 type Reply = (r: unknown) => void
 
 chrome.runtime.onMessage.addListener((msg: (ContentToBg | PageToBg) & { target?: string }, sender, reply: Reply) => {
@@ -120,6 +126,7 @@ chrome.runtime.onMessage.addListener((msg: (ContentToBg | PageToBg) & { target?:
     .then(reply)
     .catch((e) => {
       console.warn('[zipply]', msg.type, e)
+      if (!(e instanceof LockedError)) void logError(msg.type, e)
       reply({ error: e instanceof Error ? e.message : String(e), locked: e instanceof LockedError })
     })
   return true
@@ -164,6 +171,15 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
       return fillContext(tabId, msg.resumeId)
     case 'report:update':
       return null
+    case 'score:posting': {
+      if (!(await getSettings()).listingScores) return { disabled: true }
+      const hit = scoreCache.get(msg.posting.url)
+      if (hit && Date.now() - hit.at < 10 * 60_000) return hit.result
+      const c = await runChecks(msg.posting, await getProfile())
+      const result = { score: c.best?.score ?? null, verdict: c.verdict.verdict, reason: c.verdict.reason, applied: Boolean(c.applied.alreadyApplied) }
+      scoreCache.set(msg.posting.url, { at: Date.now(), result })
+      return result
+    }
     case 'fill:done': {
       if (tabId == null) return null
       const job = await getJob(tabId)
@@ -243,7 +259,7 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
     case 'gmail:enable': {
       if (msg.enabled) await getToken(true, [SCOPES.drive, SCOPES.gmail])
       await updateSettings({ gmailEnabled: msg.enabled })
-      if (msg.enabled) syncGmail().catch((e) => console.warn('[zipply] gmail sync', e))
+      if (msg.enabled) syncGmail().catch((e) => logError('gmail sync', e))
       return { ok: true }
     }
     case 'gmail:sync':
@@ -270,6 +286,13 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
         attempts: q.attempts,
         lastError: q.lastError,
       }))
+    case 'health':
+      return healthChecks()
+    case 'diagnostics':
+      return diagnostics()
+    case 'errors:clear':
+      await clearErrors()
+      return { ok: true }
     case 'applied:refresh':
       return { rows: (await refreshApplied()).length }
   }

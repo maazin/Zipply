@@ -36,6 +36,9 @@ test.beforeAll(async () => {
   await context.route('https://www.hooli.com/thank-you', (route) =>
     route.fulfill({ contentType: 'text/html', body: '<h1>Thank you for applying!</h1><p>We will be in touch.</p>' }),
   )
+  await context.route('https://www.linkedin.com/jobs/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'linkedin.html'), 'utf8') }),
+  )
   await context.route('https://shop.example.com/**', (route) =>
     route.fulfill({
       contentType: 'text/html',
@@ -271,6 +274,77 @@ test('Scans a Lever posting and the side panel renders', async () => {
   const panel = await context.newPage()
   await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html`)
   await expect(panel.getByText('Zipply', { exact: true })).toBeVisible()
+  await panel.close()
+  await page.close()
+})
+
+test('Shows a match score on a LinkedIn job and its card', async () => {
+  const page = await context.newPage()
+  await page.goto('https://www.linkedin.com/jobs/search/?currentJobId=111')
+  const detail = page.locator('.jobs-search__job-details--container [data-zipply-pill="111"]')
+  await expect(detail).toHaveText(/^\d+ · (Apply|Maybe|Skip)$/, { timeout: 10_000 })
+  await expect(page.locator('li[data-occludable-job-id="111"] [data-zipply-pill="111"]')).toHaveText(/^\d+ · /)
+  await expect(page.locator('[data-zipply-pill="222"]')).toHaveCount(0)
+  await page.close()
+})
+
+test('Remembers a fix you made, for that site', async () => {
+  const page = await context.newPage()
+  const fill = () =>
+    worker.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ url: 'https://boards.greenhouse.io/*' })
+      await chrome.tabs.sendMessage(tab.id!, { type: 'fill', resumeId: null }, { frameId: 0 })
+    })
+  await page.goto('https://boards.greenhouse.io/globex/jobs/4012345')
+  await page.waitForTimeout(1500)
+  await fill()
+  await expect(page.locator('#phone')).toHaveValue('(813) 555-0100')
+  await page.fill('#phone', '+1 813 555 0199')
+  await page.locator('#phone').blur()
+  await page.waitForTimeout(800)
+
+  await page.reload()
+  await page.waitForTimeout(1500)
+  await fill()
+  await expect(page.locator('#phone')).toHaveValue('+1 813 555 0199')
+  await page.close()
+})
+
+test('Profile page shows Status and copies diagnostics', async () => {
+  const page = await context.newPage()
+  await page.goto(`chrome-extension://${extId}/src/options/index.html#status`)
+  const status = page.locator('#status')
+  await expect(status.getByText('Google', { exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(status.getByText('Queue', { exact: true })).toBeVisible()
+  await expect(status).toContainText(/Not signed in/)
+  // Playwright can't grant clipboard access to extension pages; capture the write instead.
+  await page.evaluate(() => {
+    navigator.clipboard.writeText = async (t: string) => void ((window as unknown as { __clip: string }).__clip = t)
+  })
+  await status.getByRole('button', { name: 'Copy diagnostics' }).click()
+  await expect(status).toContainText('Copied.')
+  const clip = await page.evaluate(() => (window as unknown as { __clip: string }).__clip)
+  const d = JSON.parse(clip)
+  expect(d.zipply).toBeTruthy()
+  expect(clip).not.toMatch(/ada@example\.com|Globex|Lovelace/)
+  await page.close()
+})
+
+test('Saves a form for testing, with nothing personal in it', async () => {
+  const page = await context.newPage()
+  await page.goto('https://boards.greenhouse.io/globex/jobs/4012345')
+  await page.waitForTimeout(1500)
+  const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://boards.greenhouse.io/*' }))[0].id)
+  await page.fill('#first_name', 'Ada')
+  await page.fill('#email', 'ada@example.com')
+  const panel = await context.newPage()
+  await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
+  await expect(panel.getByRole('button', { name: 'Save form' })).toBeVisible({ timeout: 15_000 })
+  const [download] = await Promise.all([panel.waitForEvent('download'), panel.getByRole('button', { name: 'Save form' }).click()])
+  expect(download.suggestedFilename()).toMatch(/^zipply-form-boards\.greenhouse\.io-\d{4}-\d{2}-\d{2}\.html$/)
+  const html = readFileSync(await download.path(), 'utf8')
+  expect(html).toContain('id="first_name"')
+  expect(html).not.toMatch(/ada@example\.com|Lovelace|value="Ada"/)
   await panel.close()
   await page.close()
 })

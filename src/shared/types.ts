@@ -149,7 +149,8 @@ export interface AnswerBankEntry {
   answer: string
   fieldKind: FieldKind
   host: string
-  source: 'typed' | 'ai'
+  /** typed: you answered it; ai: a draft you kept; correction: you fixed what Zipply filled, on this host only. */
+  source: 'typed' | 'ai' | 'correction'
   updatedAt: number
   uses: number
 }
@@ -339,6 +340,8 @@ export interface Settings {
   sheetUrl: string
   /** Header row and Dashboard tab written. */
   sheetReady: boolean
+  /** Show match scores on LinkedIn and Indeed job listings. */
+  listingScores: boolean
   googleEmail: string
   gmailEnabled: boolean
   lastGmailSync: number

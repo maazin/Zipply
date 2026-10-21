@@ -1,6 +1,7 @@
 // Failed sheet writes wait here and retry on browser start and every 15 minutes.
 import type { JobRecord, QueueItem } from '@/shared/types'
 import { db } from '@/lib/db'
+import { logError } from '@/lib/errlog'
 import { appendRecord, MissingRowError, sheetAppIds, writeStatus, type StatusUpdate } from './sheets'
 import { NotConnectedError } from './google'
 
@@ -48,6 +49,7 @@ export async function flushQueue(): Promise<{ done: number; left: number }> {
           await db.queue.delete(item.id!)
           continue
         }
+        void logError(`queue ${item.op}`, e)
         await db.queue.update(item.id!, {
           attempts: item.attempts + 1,
           lastError: e instanceof Error ? e.message : String(e),

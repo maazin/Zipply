@@ -12,6 +12,8 @@ import { flash, setText } from './dom/setValue'
 import { fillPage, lastReports, refreshMissing, tracked, watchAnswers } from './fill'
 import { genericPosting, mergePosting, postingFromJsonLd } from './posting'
 import { detectApplication } from './detect'
+import { sanitizeForm } from './capture'
+import { decorateCards, listingPosting, pillFor, placePill, siteFor, type ListingScore } from './listings'
 
 declare global {
   interface Window {
@@ -58,7 +60,9 @@ function main() {
     const key = canonicalUrl(location.href)
     if (posting?.url === key) return posting.value
     const url = new URL(location.href)
-    const value = mergePosting(location.href, postingFromJsonLd(document), await adapter.posting?.(document, url), genericPosting(document))
+    const site = siteFor(url)
+    const listing = site ? listingPosting(site, document, url) : null
+    const value = mergePosting(listing?.url ?? location.href, listing, postingFromJsonLd(document), await adapter.posting?.(document, url), genericPosting(document))
     if (!value.title && !value.company && !value.description) return null
     posting = { url: key, value }
     return value
@@ -183,6 +187,8 @@ function main() {
           flash(el as HTMLElement)
           return { ok: true }
         }
+        case 'capture':
+          return { html: sanitizeForm(document, location.href), fields: fieldCount() }
         case 'stop':
           sessionStorage.removeItem(AUTO_KEY)
           return { ok: true }
@@ -192,6 +198,39 @@ function main() {
       .catch((e) => reply({ error: e instanceof Error ? e.message : String(e) }))
     return true
   })
+
+  // Match scores on LinkedIn and Indeed listings (top frame only).
+  const scores = new Map<string, ListingScore>()
+  const asked = new Set<string>()
+  let listingsOff = false
+  async function tickListings() {
+    const url = new URL(location.href)
+    const site = siteFor(url)
+    if (!site || listingsOff || window !== window.top) return
+    const p = listingPosting(site, document, url)
+    if (p && !scores.has(p.jobId) && !asked.has(p.jobId)) {
+      asked.add(p.jobId)
+      const r = await send<ListingScore | { disabled: true } | { error: string }>({ type: 'score:posting', posting: p }).catch(() => null)
+      if (r && 'disabled' in r) listingsOff = true
+      else if (r && !isError(r)) scores.set(p.jobId, r)
+      else asked.delete(p.jobId)
+    }
+    const s = p ? scores.get(p.jobId) : undefined
+    const title = document.querySelector(site.title)
+    if (p && s && title && !pillFor(title, p.jobId)) placePill(title, p.jobId, s)
+    decorateCards(site, document, scores)
+  }
+  if (siteFor(new URL(location.href))) {
+    let listingTimer: ReturnType<typeof setTimeout> | undefined
+    new MutationObserver(() => {
+      if (listingTimer) return
+      listingTimer = setTimeout(() => {
+        listingTimer = undefined
+        void tickListings()
+      }, 800)
+    }).observe(document.documentElement, { childList: true, subtree: true })
+    void tickListings()
+  }
 
   // Check right away: a confirmation page may be closed within a second.
   void report()

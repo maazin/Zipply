@@ -6,7 +6,7 @@ import type { AiText, FillContext } from '@/shared/messages'
 import { isError, send } from '@/shared/messages'
 import { KEY_DEF, type ProfileKey } from '@/shared/profileKeys'
 import { planFields, resolveValue, type PlanItem } from '@/core/matching/plan'
-import { shouldRemember } from '@/core/answerBank'
+import { shouldRemember, shouldRememberCorrection } from '@/core/answerBank'
 import { collectFields, findByZid, readValue, type Collected } from './dom/collect'
 import { humanPause, setCheckboxGroup, setChecked, setCombobox, setFile, setRadio, setSelect, setText } from './dom/setValue'
 import type { Adapter } from './adapters'
@@ -18,6 +18,8 @@ export interface Tracked {
   key?: ProfileKey
   source: FillSource
   draft?: string
+  /** What Zipply put there, to tell your corrections apart. */
+  filled?: string
 }
 
 /** Fields we filled or left for the user, by zid. Used for answer-bank capture and report refresh. */
@@ -108,7 +110,7 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
   const plan = planFields(
     all.map((c) => c.desc),
     ctx.profile,
-    { threshold: ctx.threshold, explicit, bank: ctx.bank, excludeKeys: repeat?.excludeKeys },
+    { threshold: ctx.threshold, explicit, bank: ctx.bank, excludeKeys: repeat?.excludeKeys, host: location.hostname },
   )
 
   // AI field mapper for leftovers: labels and options only, never values.
@@ -141,9 +143,9 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
     const c = byZid.get(item.zid)!
     if (item.action === 'fill') {
       const r = await apply(c, item, ctx)
-      tracked.set(c.desc.zid, { c, key: item.key, source: item.source })
+      tracked.set(c.desc.zid, { c, key: item.key, source: item.source, filled: readValue(c) })
       if (item.bankId && r.status !== 'skipped') send({ type: 'answer:used', id: item.bankId }).catch(() => undefined)
-      reports.push(report(c, r.status, item.source, { key: item.key, confidence: item.confidence, reason: r.reason }))
+      reports.push(report(c, r.status, item.source, { key: item.key, confidence: item.confidence, reason: r.reason ?? item.reason }))
       await humanPause()
       continue
     }
@@ -162,7 +164,7 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
         continue
       }
     }
-    tracked.set(c.desc.zid, { c, key: item.key, source: 'none' })
+    tracked.set(c.desc.zid, { c, key: item.key, source: 'none', filled: readValue(c) })
     reports.push(report(c, 'skipped', item.source, { key: item.key, reason: item.reason }))
   }
 
@@ -179,13 +181,23 @@ function remember(t: Tracked, source: 'typed' | 'ai') {
   send({ type: 'answer:save', label, answer: value, fieldKind: t.c.desc.kind, host: location.hostname, source }).catch(() => undefined)
 }
 
+/** You changed a field Zipply mapped to your profile: remember your version for this site. */
+function rememberCorrection(t: Tracked) {
+  const value = readValue(t.c)
+  const label = t.c.desc.label || t.c.desc.ariaLabel || t.c.desc.placeholder
+  if (value === t.filled || !shouldRememberCorrection(label, t.key, value, t.c.desc.kind)) return
+  t.filled = value
+  send({ type: 'answer:save', label, answer: value, fieldKind: t.c.desc.kind, host: location.hostname, source: 'correction' }).catch(() => undefined)
+}
+
 /** Anything you answer by hand is saved with its label, so the next form fills it too. */
 export function watchAnswers(doc: Document = document, onChange?: () => void) {
   const handler = (e: Event) => {
     const target = e.target as HTMLElement | null
     const zid = target?.getAttribute?.('data-zipply-id') ?? target?.getAttribute?.('data-zipply-group')
     const t = zid ? tracked.get(zid) : undefined
-    if (t && !t.key) {
+    if (t && t.key) rememberCorrection(t)
+    else if (t) {
       const value = readValue(t.c)
       remember(t, t.draft && value === t.draft ? 'ai' : 'typed')
     }

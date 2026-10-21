@@ -9,6 +9,7 @@ import { runChecks, type ChecksResult } from '@/lib/checks'
 import { db, type UnloggedRow } from '@/lib/db'
 import { Button, Card, Chip, Dot, Empty, Input, Select, Spinner, TextArea, cx } from '@/ui/kit'
 import contentScript from '@/content/index.ts?script'
+import { scrubPersonal } from '@/content/capture'
 
 type Phase = 'loading' | 'locked' | 'setup' | 'unsupported' | 'permission' | 'ready'
 
@@ -244,6 +245,8 @@ export function App() {
       {posting && <CoverLetter tabId={tab!.id!} />}
 
       <LogRow tabId={tab!.id!} state={logState} onLogged={setLogState} queue={queue} hasPosting={Boolean(posting)} />
+
+      {hasForm && <CaptureForm tabId={tab!.id!} frames={frames} host={tab?.url ? new URL(tab.url).hostname : 'page'} profile={profile} />}
 
       <SinceLastTime />
     </Shell>
@@ -542,6 +545,35 @@ function LogRow({ tabId, state, onLogged, queue, hasPosting }: { tabId: number; 
         </Button>
       )}
       {queue > 0 && <span className="text-xs text-warn">{queue} waiting to sync</span>}
+    </div>
+  )
+}
+
+/**
+ * Save this page's form, with nothing personal in it, so it can become a test
+ * fixture (tests/fixtures/captured). Real forms catch bugs mock ones miss.
+ */
+function CaptureForm({ tabId, frames, host, profile }: { tabId: number; frames: FrameInfo[]; host: string; profile: Profile | null }) {
+  const [note, setNote] = useState('')
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs text-muted">
+      <span>{note || 'Something filled wrong? Save this form so it can be fixed.'}</span>
+      <Button size="sm" variant="ghost" onClick={async () => {
+        const target = [...frames].sort((a, b) => ((b as FrameInfo & { scan?: ScanResult | null }).scan?.fields ?? b.fields) - ((a as FrameInfo & { scan?: ScanResult | null }).scan?.fields ?? a.fields))[0]
+        const r = await sendToFrame<{ html: string } | { error: string }>(tabId, target?.frameId ?? 0, { type: 'capture' }).catch(() => null)
+        if (!r || isError(r)) return setNote("Couldn't read this form.")
+        const b = profile?.basics
+        const personal = b ? [`${b.firstName} ${b.lastName}`, b.firstName, b.lastName, b.preferredName, b.email, b.phone, b.phone.replace(/\D/g, ''), b.addressLine1, ...Object.values(profile!.links)] : []
+        const html = scrubPersonal(r.html, personal.filter((v) => v.length >= 3))
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+        a.download = `zipply-form-${host}-${new Date().toISOString().slice(0, 10)}.html`
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
+        setNote('Saved. Nothing you typed is in it. Send it over and it becomes a test.')
+      }}>
+        Save form
+      </Button>
     </div>
   )
 }

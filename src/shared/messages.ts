@@ -69,12 +69,13 @@ export interface AiText {
 export type ContentToBg =
   | { type: 'frame:status'; ats: AtsName; fields: number; confirmation: boolean; posting: Posting | null }
   | { type: 'fill:context'; resumeId: string | null }
-  | { type: 'answer:save'; label: string; answer: string; fieldKind: FieldKind; host: string; source: 'typed' | 'ai' }
+  | { type: 'answer:save'; label: string; answer: string; fieldKind: FieldKind; host: string; source: 'typed' | 'ai' | 'correction' }
   | { type: 'answer:used'; id: string }
   | { type: 'ai:map'; fields: MapField[] }
   | { type: 'ai:answer'; question: string; maxWords: number }
   | { type: 'submit:confirmed'; ats: AtsName; url: string; posting: Posting | null }
   | { type: 'fill:done'; reports: FieldReport[]; auto: boolean }
+  | { type: 'score:posting'; posting: Posting }
   /** Field states changed after a fill (you edited something); not a fill. */
   | { type: 'report:update'; reports: FieldReport[] }
 
@@ -94,6 +95,9 @@ export type PageToBg =
   | { type: 'log:unlogged'; id: string }
   | { type: 'queue:flush' }
   | { type: 'queue:list' }
+  | { type: 'health' }
+  | { type: 'diagnostics' }
+  | { type: 'errors:clear' }
   | { type: 'applied:refresh' }
 
 // Panel → content script
@@ -103,6 +107,7 @@ export type PageToContent =
   | { type: 'focus'; zid: string }
   | { type: 'insert'; text: string; target: 'cover-letter' }
   | { type: 'stop' }
+  | { type: 'capture' }
 
 export type Msg = ContentToBg | PageToBg
 

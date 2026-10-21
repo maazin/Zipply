@@ -23,7 +23,7 @@ export interface AnswerRow extends Sealed {
   labelNorm: string
   fieldKind: FieldKind
   host: string
-  source: 'typed' | 'ai'
+  source: 'typed' | 'ai' | 'correction'
   updatedAt: number
   uses: number
 }

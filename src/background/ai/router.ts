@@ -3,6 +3,7 @@
 import { getGeminiKey, getSettings } from '@/lib/repo'
 import { nanoPrompt, nanoStatus, type NanoStatus } from '@/lib/nano'
 import { bumpUsage as bump, usageCount } from '@/lib/usage'
+import { logError } from '@/lib/errlog'
 import { geminiGenerate, QuotaError } from './gemini'
 
 export type Tier = 'flash' | 'flashLite' | 'nano'
@@ -99,6 +100,7 @@ export async function runAi(job: Job, system: string, prompt: string, schema?: o
         continue
       }
       console.warn(`[zipply] ${tier} failed`, e)
+      void logError(`ai ${tier}`, e)
     }
   }
   return null

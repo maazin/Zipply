@@ -8,6 +8,7 @@ Built by [Maazin Shaikh](https://www.linkedin.com/in/maazin-shaikh).
 - **Works on any form.** Dedicated adapters for the five big ATS platforms, plus a rule-based matcher that reads any unknown form. AI only fills the gaps, and it never sees your personal values.
 - **Before you apply.** An Apply, Maybe or Skip verdict, a match score with the keywords you can add (and the real gaps you shouldn't fake), red flags, an already-applied warning, and an ATS readability grade for each resume.
 - **A tracker that keeps itself current.** Confirmed submissions append a row to a sheet Zipply creates, with a Dashboard tab of plain formulas. Optional Gmail sync moves each application's status forward.
+- **Scores on job listings.** Open a job on LinkedIn or Indeed and a small match score appears by its title and on its card, so you can skip bad fits before opening the application.
 - **$0 to run.** On-device Gemini Nano handles anything private; Gemini's free API tier writes drafts. Rules run first, so most fills never call a model.
 
 ## How it works
@@ -78,6 +79,16 @@ Get a key from [Google AI Studio](https://aistudio.google.com/apikey) in a proje
 
 Gemini Nano runs through Chrome's built-in Prompt API when your laptop supports it (22 GB free disk, and over 4 GB of GPU memory or 16 GB RAM). Without it, those jobs fall back to rules and your review. Zipply works with no AI at all.
 
+### Learning from your fixes
+
+When you change a value Zipply filled, your version is remembered for that question on that site and used there next time (shown in the Answer bank as "Fix for <site>"). Fixes never apply on other sites, and sensitive answers and consent boxes are never learned.
+
+### When something goes wrong
+
+- **Status** at the top of the Profile page checks each moving part: profile unlocked, Google signed in, sheet reachable, Gmail access, Gemini key (checked without spending quota), Nano, and anything waiting in the queue. Each line says what to do.
+- **Copy diagnostics** copies a JSON report for bug reports: versions, settings, the status checks, queue errors and the last 50 errors. It contains no profile details, companies, email content, emails, phone numbers or keys.
+- **Save form** in the panel saves the page's application form as an HTML file with everything personal removed (typed values, checked boxes, hidden tokens, scripts, link queries, and your name, email, phone and address wherever they appear). Drop it into `tests/fixtures/captured/` and `npm test` runs it as a test.
+
 ## Before-you-apply checks
 
 All rule-based, in the browser, with no AI calls.
@@ -88,6 +99,7 @@ All rule-based, in the browser, with no AI calls.
 | Can add / Real gap | A missing keyword is **Can add** if it's in your profile or another resume, otherwise a **Real gap**. Only Can add terms become tips. |
 | Verdict | Role fit, Level, Logistics, Pay. **Apply** at 70+ with nothing failing, **Maybe** at 50 to 69 or one warning, **Skip** below 50 or on a hard blocker (no sponsorship when you need it, a blocklisted company, a clearance you don't have). Thresholds are editable. Skip never blocks filling. |
 | Red flags | Posted 30+ days ago, same title already in your sheet within 90 days, no salary range or one wider than 50% of its floor, a vague posting, contract wording when you want full-time. Shown as High confidence / Proceed with caution / Suspicious; never changes the score. |
+| Listing scores | On LinkedIn and Indeed, only jobs you open are scored (the full description from the detail pane, never a background fetch). The score shows by the title and stays on that job's card. Turn it off under Connections. |
 | Already applied | Instant lookup by company and job ID or posting URL, plus a softer "Possibly applied" for the same company and a near-identical title within 60 days. |
 | ATS readability | pdf.js text layer (200+ characters per page), email and phone as plain body text, under 1% broken or ligature characters, reading order across columns, Experience / Education / Skills headings, keyword coverage on the extracted text. Graded Good, Fix or Broken. |
 
