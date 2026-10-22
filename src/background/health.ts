@@ -1,5 +1,6 @@
 // One check per moving part, for the Profile page's Status panel, plus a
 // diagnostics bundle with nothing personal in it.
+import { BUILD } from '@/shared/build'
 import type { Settings } from '@/shared/types'
 import { db } from '@/lib/db'
 import { getGeminiKey, getSettings } from '@/lib/repo'
@@ -100,6 +101,7 @@ export async function diagnostics(): Promise<object> {
   ])
   return {
     zipply: chrome.runtime.getManifest().version,
+    build: BUILD,
     chrome: navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? '',
     at: new Date().toISOString(),
     settings: {

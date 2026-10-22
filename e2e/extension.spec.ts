@@ -409,6 +409,31 @@ test('Ranks all your resumes for a job and suggests the best', async () => {
   await li.close()
 })
 
+test('Holds 10 resumes, ranks all 10, and refuses an 11th', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'zipply-resumes-'))
+  const opts = await context.newPage()
+  opts.on('pageerror', (e) => errors.push(e.message))
+  await opts.goto(`chrome-extension://${extId}/src/options/index.html`)
+  const section = opts.locator('#resumes')
+  const have = await section.locator('input[placeholder="Tag"]').count()
+  for (let i = have + 1; i <= 10; i++) {
+    const f = join(dir, `resume-${i}.docx`)
+    writeFileSync(f, readFileSync(join(FIX, 'resume-frontend.docx')))
+    await section.locator('input[type=file]').first().setInputFiles(f)
+    await expect(section.getByText(`resume-${i}.docx`)).toBeVisible({ timeout: 15_000 })
+  }
+  await expect(section.locator('input[placeholder="Tag"]')).toHaveCount(10)
+  // Full: the add button goes away.
+  await expect(section.getByText('Add a resume')).toHaveCount(0)
+
+  await section.locator('textarea').fill('Data Analyst. Requirements: SQL, Python, Tableau and Excel. Nice to have: Pandas. You will build dashboards for operations teams.')
+  await opts.getByRole('button', { name: 'Compare resumes' }).click()
+  await expect(opts.getByTestId('resume-ranking').locator('li')).toHaveCount(10)
+  await expect(opts.getByTestId('resume-ranking').locator('li').first()).toContainText('resume.pdf')
+
+  await opts.close()
+})
+
 test('No console errors on extension pages', () => {
   expect(errors.filter((e) => !/favicon|ERR_FILE_NOT_FOUND/.test(e))).toEqual([])
 })

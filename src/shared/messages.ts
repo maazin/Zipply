@@ -89,6 +89,7 @@ export type PageToBg =
   | { type: 'google:connect' }
   | { type: 'sheet:create' }
   | { type: 'sheet:check' }
+  | { type: 'build' }
   | { type: 'google:disconnect' }
   | { type: 'gmail:enable'; enabled: boolean }
   | { type: 'gmail:sync' }

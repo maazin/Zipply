@@ -18,9 +18,12 @@ import { assignEmail, messageSummary, syncGmail } from './gmail'
 import { diagnostics, healthChecks } from './health'
 import { runChecks } from '@/lib/checks'
 import { clearErrors, logError } from '@/lib/errlog'
+import { BUILD } from '@/shared/build'
+import { reloadIfNewBuildOnDisk } from '@/lib/selfUpdate'
 
 const QUEUE_ALARM = 'zipply-queue'
 const GMAIL_ALARM = 'zipply-gmail'
+const BUILD_ALARM = 'zipply-build'
 
 // ---------- Lifecycle ----------
 
@@ -31,6 +34,8 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   })
   await chrome.alarms.create(QUEUE_ALARM, { periodInMinutes: 15 })
   await chrome.alarms.create(GMAIL_ALARM, { periodInMinutes: 120, delayInMinutes: 1 })
+  // Unpacked (developer) installs pick up a rebuild within a minute.
+  if ((await chrome.management.getSelf()).installType === 'development') await chrome.alarms.create(BUILD_ALARM, { periodInMinutes: 1 })
   if (reason === 'install') await chrome.runtime.openOptionsPage()
 })
 
@@ -46,6 +51,7 @@ chrome.contextMenus.onClicked.addListener((info) => {
 })
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === BUILD_ALARM) return void (await reloadIfNewBuildOnDisk())
   if (alarm.name === QUEUE_ALARM) await flushQueue().catch((e) => logError('queue', e))
   if (alarm.name === GMAIL_ALARM) await syncGmail().catch((e) => logError('gmail sync', e))
 })
@@ -124,6 +130,7 @@ type Reply = (r: unknown) => void
 
 chrome.runtime.onMessage.addListener((msg: (ContentToBg | PageToBg) & { target?: string }, sender, reply: Reply) => {
   if (msg?.target === 'offscreen') return false
+  if (msg?.type === 'build') return reply({ build: BUILD }), false
   handle(msg, sender)
     .then(reply)
     .catch((e) => {

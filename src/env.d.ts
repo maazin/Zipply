@@ -6,3 +6,6 @@ declare module '*?script' {
   const path: string
   export default path
 }
+
+/** When this copy of Zipply was built (set by vite.config.ts). */
+declare const __BUILD__: string

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { send } from '@/shared/messages'
+import { buildLabel } from '@/shared/build'
 import type { HealthCheck } from '@/background/health'
 import { Button, Dot, Spinner } from '@/ui/kit'
 import { Section } from '../App'
@@ -53,6 +54,7 @@ export function Status() {
         </Button>
         {note && <span className="text-xs text-muted" aria-live="polite">{note}</span>}
       </div>
+      <p className="mt-3 text-xs text-faint" data-testid="build">Zipply {chrome.runtime.getManifest().version}, built {buildLabel()}</p>
     </Section>
   )
 }
