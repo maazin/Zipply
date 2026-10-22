@@ -3,13 +3,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { installChrome, resetStores } from './chromeMock'
 
 const reload = vi.fn()
-let backgroundBuild: string | undefined
+let backgroundBuild: string | null | undefined
+let unreachable = false
 let diskBuild = 'test'
 installChrome({
   runtime: {
     reload,
     getURL: (p: string) => `chrome-extension://x/${p}`,
-    sendMessage: async (m: { type: string }) => (m.type === 'build' ? (backgroundBuild === undefined ? undefined : { build: backgroundBuild }) : {}),
+    sendMessage: async (m: { type: string }) => {
+      if (unreachable) throw new Error('Could not establish connection. Receiving end does not exist.')
+      // An old background answers null to a message it doesn't know.
+      return m.type === 'build' ? (backgroundBuild == null ? backgroundBuild : { build: backgroundBuild }) : {}
+    },
   },
 })
 globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ build: diskBuild }))) as typeof fetch
@@ -21,6 +26,7 @@ beforeEach(() => {
   resetStores()
   reload.mockClear()
   backgroundBuild = BUILD
+  unreachable = false
   diskBuild = BUILD
 })
 
@@ -38,9 +44,15 @@ describe('self-update', () => {
   })
 
   it('reloads when the background is so old it does not know the question', async () => {
-    backgroundBuild = undefined
+    backgroundBuild = null
     expect(await reloadIfBackgroundStale()).toBe(true)
     expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not reload when the background is restarting and cannot be reached', async () => {
+    unreachable = true
+    expect(await reloadIfBackgroundStale()).toBe(false)
+    expect(reload).not.toHaveBeenCalled()
   })
 
   it('reloads only once per build, so it can never loop', async () => {

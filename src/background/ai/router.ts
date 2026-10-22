@@ -90,7 +90,7 @@ export async function runAi(job: Job, system: string, prompt: string, schema?: o
       const model = s.models[tier]
       if ((await usageCount(model)) >= s.dailyLimits[tier]) continue
       await bump(model)
-      const text = await geminiGenerate({ apiKey, model, system, prompt, schema, temperature: job === 'write' ? 0.6 : 0.1 })
+      const text = await geminiGenerate({ apiKey, model, system, prompt, schema, temperature: job === 'write' ? 0.75 : 0.1 })
       if (!accept(text)) continue
       return { text, model }
     } catch (e) {

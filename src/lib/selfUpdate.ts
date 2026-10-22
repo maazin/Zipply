@@ -32,13 +32,23 @@ export async function reloadIfNewBuildOnDisk(): Promise<boolean> {
   return disk != null && disk !== BUILD ? reloadOnce(disk) : false
 }
 
-/** In a page (always the build on disk): reload if the background is older. */
+/**
+ * In a page (always the build on disk): reload if the background is older.
+ * Only an answer counts: an old background replies null to a message it
+ * doesn't know, while one that is restarting can't be reached at all, and
+ * that is no reason to reload.
+ */
 export async function reloadIfBackgroundStale(): Promise<boolean> {
-  let theirs: string | undefined
-  try {
-    theirs = ((await chrome.runtime.sendMessage({ type: 'build' })) as { build?: string } | undefined)?.build
-  } catch {
-    theirs = undefined
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let reply: unknown
+    try {
+      reply = await chrome.runtime.sendMessage({ type: 'build' })
+    } catch {
+      await new Promise((r) => setTimeout(r, 300))
+      continue
+    }
+    const theirs = (reply as { build?: unknown } | null | undefined)?.build
+    return theirs === BUILD ? false : reloadOnce(BUILD)
   }
-  return theirs === BUILD ? false : reloadOnce(BUILD)
+  return false
 }

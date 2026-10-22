@@ -10,6 +10,7 @@ import {
   tailoringPrompt,
   type MapField,
 } from '@/core/ai/prompts'
+import { revisionPrompt, styleIssues, tidy } from '@/core/ai/style'
 import { runAi, runAiJson } from './router'
 
 /** Labels in, profile key names out. No personal values are sent. */
@@ -30,11 +31,28 @@ async function ground(draft: string, profile: Profile): Promise<string[]> {
   return (r?.data.unsupported ?? []).filter((s) => typeof s === 'string' && s.trim()).slice(0, 5)
 }
 
+/**
+ * Clean up a draft so it reads like a person wrote it: mechanical fixes first,
+ * then one rewrite if chatbot habits remain. The rewrite is kept only if it's
+ * cleaner and still within the length limit.
+ */
+export async function polish(draft: string, maxWords: number, opts: { bullets?: boolean } = {}): Promise<string> {
+  const first = tidy(draft, opts)
+  const issues = styleIssues(first, opts)
+  if (!issues.length) return first
+  const { system, prompt } = revisionPrompt(first, issues, maxWords)
+  const r = await runAi('write', system, prompt)
+  if (!r) return first
+  const second = tidy(r.text, opts)
+  const words = (t: string) => t.split(/\s+/).filter(Boolean).length
+  return second && styleIssues(second, opts).length < issues.length && words(second) <= Math.ceil(maxWords * 1.15) ? second : first
+}
+
 export async function draftAnswer(question: string, posting: Posting | null, profile: Profile, maxWords = 150): Promise<AiText | null> {
   const { system, prompt } = answerPrompt(question, posting, profile, maxWords)
   const r = await runAi('write', system, prompt)
   if (!r) return null
-  const text = r.text.trim()
+  const text = await polish(r.text, maxWords)
   return { text, warnings: await ground(text, profile), model: r.model }
 }
 
@@ -42,7 +60,7 @@ export async function coverLetter(posting: Posting, profile: Profile): Promise<A
   const { system, prompt } = coverLetterPrompt(posting, profile)
   const r = await runAi('write', system, prompt)
   if (!r) return null
-  const text = r.text.trim()
+  const text = await polish(r.text, 250)
   return { text, warnings: await ground(text, profile), model: r.model }
 }
 
@@ -50,7 +68,7 @@ export async function tailoringTips(posting: Posting, bullets: string, missing: 
   if (!missing.length) return null
   const { system, prompt } = tailoringPrompt(posting, bullets, missing)
   const r = await runAi('write', system, prompt)
-  return r ? { text: r.text.trim(), warnings: [], model: r.model } : null
+  return r ? { text: await polish(r.text, 90, { bullets: true }), warnings: [], model: r.model } : null
 }
 
 /** On-device only, unless you turned on the cloud fallback for email. */

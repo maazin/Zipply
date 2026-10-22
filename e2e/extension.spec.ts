@@ -415,7 +415,10 @@ test('Holds 10 resumes, ranks all 10, and refuses an 11th', async () => {
   opts.on('pageerror', (e) => errors.push(e.message))
   await opts.goto(`chrome-extension://${extId}/src/options/index.html`)
   const section = opts.locator('#resumes')
+  // Wait for the two resumes added earlier before counting.
+  await expect(section.getByText('resume-frontend.docx')).toBeVisible({ timeout: 15_000 })
   const have = await section.locator('input[placeholder="Tag"]').count()
+  expect(have).toBe(2)
   for (let i = have + 1; i <= 10; i++) {
     const f = join(dir, `resume-${i}.docx`)
     writeFileSync(f, readFileSync(join(FIX, 'resume-frontend.docx')))
