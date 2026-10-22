@@ -93,22 +93,40 @@ export function pill(doc: Document, jobId: string, s: ListingScore): HTMLElement
 
 const HEADING = /^H[1-6]$/
 
-/** The pill already next to `anchor` (inside a heading, or right after a link). */
+/** The heading the pill goes inside: the anchor itself, or one it wraps (LinkedIn's title is a div around an h1). */
+function headingOf(anchor: Element): Element | null {
+  return HEADING.test(anchor.tagName) ? anchor : anchor.querySelector('h1, h2, h3, h4, h5, h6')
+}
+
+/** Pills already by `anchor`, for any job. */
+function pillsBy(anchor: Element): Element[] {
+  const box = headingOf(anchor) ?? anchor.parentElement
+  return box ? Array.from(box.querySelectorAll(':scope > [data-zipply-pill]')) : []
+}
+
+/** The pill already next to `anchor` (inside its heading, or right after a link). */
 export function pillFor(anchor: Element, jobId: string): Element | null {
-  const sel = `:scope > [data-zipply-pill="${jobId}"]`
-  return (HEADING.test(anchor.tagName) ? anchor.querySelector(sel) : null) ?? anchor.parentElement?.querySelector(sel) ?? null
+  return pillsBy(anchor).find((p) => p.getAttribute('data-zipply-pill') === jobId) ?? null
 }
 
 /**
  * Put (or refresh) the pill by `anchor`: inside a heading so it sits on the
- * title's line, otherwise right after it (never inside a link).
+ * title's line, otherwise right after it (never inside a link). Pills for other
+ * jobs there are removed, since sites reuse the same title element and cards.
  */
 export function placePill(anchor: Element | null, jobId: string, s: ListingScore) {
   if (!anchor) return
-  pillFor(anchor, jobId)?.remove()
+  for (const p of pillsBy(anchor)) p.remove()
   const el = pill(anchor.ownerDocument, jobId, s)
-  if (HEADING.test(anchor.tagName)) anchor.append(el)
+  const heading = headingOf(anchor)
+  if (heading) heading.append(el)
   else anchor.insertAdjacentElement('afterend', el)
+}
+
+/** Drop pills by `anchor` that belong to a different job. */
+export function clearStale(anchor: Element | null, jobId: string) {
+  if (!anchor) return
+  for (const p of pillsBy(anchor)) if (p.getAttribute('data-zipply-pill') !== jobId) p.remove()
 }
 
 /** Pills on every card in the list that has been scored. */
@@ -116,8 +134,8 @@ export function decorateCards(site: ListingSite, doc: Document, scores: Map<stri
   for (const card of Array.from(doc.querySelectorAll(site.cards))) {
     const id = site.cardId(card)
     const s = id ? scores.get(id) : undefined
-    if (!s) continue
     const title = site.cardTitle(card)
-    if (title && !pillFor(title, id)) placePill(title, id, s)
+    clearStale(title, id)
+    if (s && title && !pillFor(title, id)) placePill(title, id, s)
   }
 }

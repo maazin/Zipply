@@ -13,7 +13,7 @@ import { fillPage, lastReports, refreshMissing, tracked, watchAnswers } from './
 import { genericPosting, mergePosting, postingFromJsonLd } from './posting'
 import { detectApplication } from './detect'
 import { sanitizeForm } from './capture'
-import { decorateCards, listingPosting, pillFor, placePill, siteFor, type ListingScore } from './listings'
+import { clearStale, decorateCards, listingPosting, pillFor, placePill, siteFor, type ListingScore } from './listings'
 
 declare global {
   interface Window {
@@ -217,6 +217,8 @@ function main() {
     }
     const s = p ? scores.get(p.jobId) : undefined
     const title = document.querySelector(site.title)
+    // The detail pane is reused: drop the last job's pill as soon as another opens.
+    clearStale(title, site.jobId(url, document))
     if (p && s && title && !pillFor(title, p.jobId)) placePill(title, p.jobId, s)
     decorateCards(site, document, scores)
   }

@@ -285,6 +285,16 @@ test('Shows a match score on a LinkedIn job and its card', async () => {
   await expect(detail).toHaveText(/^\d+ · (Apply|Maybe|Skip)$/, { timeout: 10_000 })
   await expect(page.locator('li[data-occludable-job-id="111"] [data-zipply-pill="111"]')).toHaveText(/^\d+ · /)
   await expect(page.locator('[data-zipply-pill="222"]')).toHaveCount(0)
+  // Inside the h1, on the title's line.
+  await expect(page.locator('.job-details-jobs-unified-top-card__job-title h1 > [data-zipply-pill="111"]')).toHaveCount(1)
+  // Open job 222 the way LinkedIn does: same page, same title element, new text.
+  await page.evaluate(() => {
+    history.pushState(null, '', '/jobs/search/?currentJobId=222')
+    document.querySelector('.job-details-jobs-unified-top-card__job-title h1 a')!.textContent = 'Senior Staff Engineer'
+    document.querySelector('#job-details')!.insertAdjacentHTML('afterbegin', '<p>Staff engineer owning distributed systems in Go and Kubernetes.</p>')
+  })
+  await expect(page.locator('.jobs-search__job-details--container [data-zipply-pill="222"]')).toHaveText(/^\d+ · /, { timeout: 10_000 })
+  await expect(page.locator('.jobs-search__job-details--container [data-zipply-pill]')).toHaveCount(1)
   await page.close()
 })
 
