@@ -21,22 +21,17 @@ declare global {
   }
 }
 
-const AUTO_KEY = 'zipply-auto'
-/** Multi-page auto-fill lasts an hour after you press Fill, then needs a new click. */
-const AUTO_TTL = 60 * 60 * 1000
+/** Auto-fill after you press Fill. Kept per tab by the service worker, so it
+ * survives "Apply" taking you to another site. */
+let auto: { resumeId: string | null } | null = null
 
 function autoFill(): { resumeId: string | null } | null {
-  try {
-    const v = JSON.parse(sessionStorage.getItem(AUTO_KEY) ?? 'null') as { resumeId: string | null; at?: number } | null
-    if (!v) return null
-    if (!v.at || Date.now() - v.at > AUTO_TTL) {
-      sessionStorage.removeItem(AUTO_KEY)
-      return null
-    }
-    return v
-  } catch {
-    return null
-  }
+  return auto
+}
+
+function setAuto(next: { resumeId: string | null } | null) {
+  auto = next
+  send(next ? { type: 'auto:set', resumeId: next.resumeId } : { type: 'auto:clear' }).catch(() => undefined)
 }
 
 function main() {
@@ -68,6 +63,18 @@ function main() {
     return value
   }
 
+  /** A job description page with no form: tell the service worker, once per page, for the "Apply" that follows. */
+  let seenJob = ''
+  function noteJobPage() {
+    if (window !== window.top || siteFor(new URL(location.href))) return
+    const key = canonicalUrl(location.href)
+    if (seenJob === key) return
+    const p = postingFromJsonLd(document)
+    if (!p || (!p.title && !p.company) || (p.description ?? '').length < 200) return
+    seenJob = key
+    send({ type: 'job:seen', posting: mergePosting(location.href, p) }).catch(() => undefined)
+  }
+
   function fieldCount(): number {
     return collectFields(document).filter((c) => c.desc.kind !== 'file' || c.desc.label).length
   }
@@ -79,6 +86,7 @@ function main() {
     const filledHere = Boolean(autoFill())
     const confirmation = (adapter.name !== 'Other' || filledHere) && adapter.isConfirmation(document, new URL(location.href))
     if (!confirmation && !checkActive()) {
+      noteJobPage()
       if (reported) {
         reported = false
         lastStatus = ''
@@ -96,7 +104,7 @@ function main() {
     }
     if (confirmation && confirmedFor !== location.href) {
       confirmedFor = location.href
-      sessionStorage.removeItem(AUTO_KEY)
+      setAuto(null)
       send({ type: 'submit:confirmed', ats: adapter.name, url: location.href, posting: await getPosting().catch(() => null) }).catch(() => undefined)
     }
   }
@@ -170,7 +178,7 @@ function main() {
             posting: await getPosting(),
           } satisfies ScanResult
         case 'fill':
-          sessionStorage.setItem(AUTO_KEY, JSON.stringify({ resumeId: msg.resumeId, at: Date.now() }))
+          setAuto({ resumeId: msg.resumeId })
           active = true
           return { reports: await run(msg.resumeId, false) }
         case 'focus': {
@@ -190,7 +198,7 @@ function main() {
         case 'capture':
           return { html: sanitizeForm(document, location.href), fields: fieldCount() }
         case 'stop':
-          sessionStorage.removeItem(AUTO_KEY)
+          setAuto(null)
           return { ok: true }
       }
     })()
@@ -203,11 +211,18 @@ function main() {
   const scores = new Map<string, ListingScore>()
   const asked = new Set<string>()
   let listingsOff = false
+  let seenListing = ''
   async function tickListings() {
     const url = new URL(location.href)
     const site = siteFor(url)
-    if (!site || listingsOff || window !== window.top) return
+    if (!site || window !== window.top) return
     const p = listingPosting(site, document, url)
+    // The job you have open is the one "Apply" is for.
+    if (p && seenListing !== p.jobId) {
+      seenListing = p.jobId
+      send({ type: 'job:seen', posting: p }).catch(() => undefined)
+    }
+    if (listingsOff) return
     if (p && !scores.has(p.jobId) && !asked.has(p.jobId)) {
       asked.add(p.jobId)
       const r = await send<ListingScore | { disabled: true } | { error: string }>({ type: 'score:posting', posting: p }).catch(() => null)
@@ -235,7 +250,13 @@ function main() {
   }
 
   // Check right away: a confirmation page may be closed within a second.
-  void report()
+  // First learn whether you pressed Fill earlier in this tab (maybe on another site).
+  void send<{ resumeId: string | null } | null>({ type: 'auto:get' })
+    .then((a) => {
+      if (a && 'resumeId' in a) auto = a
+    })
+    .catch(() => undefined)
+    .finally(() => void report())
   // And as the tab closes or goes to the background, in case it changed since.
   const lastLook = () => void report()
   addEventListener('pagehide', lastLook)

@@ -1,7 +1,7 @@
 // Service worker: talks to Google, runs AI calls, logs submissions and keeps
 // per-tab state. No server; data stays in this browser and your Google account.
-import type { AppStatus, Posting } from '@/shared/types'
-import { normalizeCompany } from '@/shared/text'
+import type { AppStatus, AtsName, Posting } from '@/shared/types'
+import { continuesJob, JOB_TTL, mergePostingInto, samePosting } from '@/core/jobContext'
 import { canonicalUrl } from '@/core/score/applied'
 import type { ContentToBg, FillContext, FrameInfo, JobContext, PageToBg } from '@/shared/messages'
 import { LockedError } from '@/lib/keys'
@@ -80,8 +80,40 @@ export async function getJob(tabId: number): Promise<JobContext | null> {
 }
 
 async function setJob(tabId: number, job: JobContext | null) {
-  if (job) await session.set(jobKey(tabId), job)
+  if (job) await session.set(jobKey(tabId), { ...job, at: Date.now() })
   else await session.remove(jobKey(tabId))
+}
+
+/**
+ * A page in this tab shows a posting. If it continues the job you were on
+ * (the application form after "Apply", often on another site), keep that job
+ * and fill in what's missing; if it's a different posting, it becomes the job.
+ */
+async function rememberJob(tabId: number, ats: AtsName, p: Posting | null) {
+  const prev = await getJob(tabId)
+  if (prev && continuesJob(prev, p)) {
+    await setJob(tabId, { ...prev, ats: ats !== 'Other' ? ats : prev.ats, posting: mergePostingInto(prev.posting, p), lastUrl: p?.url ?? prev.lastUrl })
+    return
+  }
+  if (p && (p.company || p.title)) await setJob(tabId, { ...bareContext(ats, p.url, p), lastUrl: p.url })
+}
+
+// Auto-fill follows the tab, not the site: after you press Fill, the next
+// steps fill themselves even when "Apply" moves you to another site.
+const autoKey = (tabId: number) => `auto:${tabId}`
+/** Auto-fill lasts an hour after you press Fill, then needs a new click. */
+const AUTO_TTL = 60 * 60_000
+/** A new tab inherits auto-fill only this soon after you turned it on. */
+const HANDOFF_MS = 5 * 60_000
+
+async function getAuto(tabId: number): Promise<{ resumeId: string | null } | null> {
+  const a = await session.get<{ resumeId: string | null; at: number }>(autoKey(tabId))
+  if (!a) return null
+  if (Date.now() - a.at > AUTO_TTL) {
+    await session.remove(autoKey(tabId))
+    return null
+  }
+  return { resumeId: a.resumeId }
 }
 
 async function updateBadge(tabId: number) {
@@ -109,6 +141,19 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   await noteIfUnlogged(tabId)
   await session.remove(framesKey(tabId))
   await session.remove(jobKey(tabId))
+  await session.remove(autoKey(tabId))
+})
+
+// "Apply" that opens a new tab: the new tab carries on with the same job.
+chrome.tabs.onCreated.addListener(async (tab) => {
+  if (tab.id == null || tab.openerTabId == null) return
+  const job = await getJob(tab.openerTabId)
+  if (!job || (job.at && Date.now() - job.at > JOB_TTL)) return
+  await session.set(jobKey(tab.id), { ...job, filledAt: undefined, loggedAppId: undefined, at: Date.now() })
+  // Auto-fill only follows a tab opened right after you turned it on, so
+  // other jobs you open from the same list don't fill themselves.
+  const auto = await session.get<{ resumeId: string | null; at: number }>(autoKey(tab.openerTabId))
+  if (auto && Date.now() - auto.at < HANDOFF_MS) await session.set(autoKey(tab.id), auto)
 })
 
 chrome.tabs.onUpdated.addListener(async (tabId, info) => {
@@ -169,13 +214,25 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
       await updateBadge(tabId)
       // Remember the posting so a later confirmation page can be logged even if
       // the panel was never opened.
-      const p = msg.posting
-      if (p && (p.company || p.title) && !msg.confirmation) {
-        const job = await getJob(tabId)
-        if (!job || !samePosting(job.posting, p)) await setJob(tabId, bareContext(msg.ats, p.url, p))
-      }
+      if (!msg.confirmation && (msg.posting || msg.fields > 0)) await rememberJob(tabId, msg.ats, msg.posting)
       return null
     }
+    case 'job:seen':
+      // A posting page with no form (LinkedIn, a careers page): remember it for the "Apply" that follows.
+      if (tabId != null && (sender.frameId ?? 0) === 0) await rememberJob(tabId, 'Other', msg.posting)
+      return null
+    case 'auto:get':
+      return tabId == null ? null : getAuto(tabId)
+    case 'auto:set':
+      if (tabId != null) await session.set(autoKey(tabId), { resumeId: msg.resumeId, at: Date.now() })
+      return null
+    case 'auto:arm':
+      // "Fill the application when it opens", pressed on a posting page.
+      await session.set(autoKey(msg.tabId), { resumeId: msg.resumeId, at: Date.now() })
+      return { ok: true }
+    case 'auto:clear':
+      if (tabId != null) await session.remove(autoKey(tabId))
+      return null
     case 'fill:context':
       return fillContext(tabId, msg.resumeId)
     case 'report:update':
@@ -200,7 +257,7 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
     case 'fill:done': {
       if (tabId == null) return null
       const job = await getJob(tabId)
-      if (job) await setJob(tabId, { ...job, filledAt: Date.now() })
+      if (job) await setJob(tabId, { ...job, filledAt: Date.now(), lastUrl: sender.url ?? job.lastUrl })
       return null
     }
     case 'answer:save':
@@ -233,11 +290,11 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
 
     // ----- from the panel and the Profile page -----
     case 'tab:state':
-      return { frames: await getFrames(msg.tabId), job: await getJob(msg.tabId), queue: await queueSize(), settings: await getSettings() }
+      return { frames: await getFrames(msg.tabId), job: await getJob(msg.tabId), auto: Boolean(await getAuto(msg.tabId)), queue: await queueSize(), settings: await getSettings() }
     case 'job:set': {
       const prev = await getJob(msg.tabId)
       const same = prev && samePosting(prev.posting, msg.job.posting)
-      await setJob(msg.tabId, { ...msg.job, filledAt: same ? prev.filledAt : undefined, loggedAppId: same ? prev.loggedAppId : undefined })
+      await setJob(msg.tabId, { ...msg.job, filledAt: same ? prev.filledAt : undefined, loggedAppId: same ? prev.loggedAppId : undefined, lastUrl: prev?.lastUrl })
       return { ok: true }
     }
     case 'log:manual': {
@@ -324,11 +381,6 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
       return { rows: (await refreshApplied()).length }
   }
   return null
-}
-
-function samePosting(a: Posting, b: Posting): boolean {
-  if (a.jobId && b.jobId) return a.jobId === b.jobId && normalizeCompany(a.company) === normalizeCompany(b.company)
-  return canonicalUrl(a.url) === canonicalUrl(b.url)
 }
 
 function stripEmpty<T extends object>(o: T): Partial<T> {

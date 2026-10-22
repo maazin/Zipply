@@ -6,7 +6,9 @@ import { computeVerdict } from '@/core/score/verdict'
 import { getProfile, listResumes } from '@/lib/repo'
 import { isLocked, unlock } from '@/lib/keys'
 import { runChecks, type ChecksResult } from '@/lib/checks'
+import { continuesJob, mergePostingInto } from '@/core/jobContext'
 import { ResumeRanking } from '@/ui/ResumeRanking'
+import { sinceSummary } from './since'
 import { db, type UnloggedRow } from '@/lib/db'
 import { Button, Card, Chip, Dot, Empty, Input, Select, Spinner, TextArea, cx } from '@/ui/kit'
 import contentScript from '@/content/index.ts?script'
@@ -27,7 +29,7 @@ async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
 }
 
 async function tabState(tabId: number) {
-  return send<{ frames: FrameInfo[]; job: JobContext | null; queue: number; settings: Settings }>({ type: 'tab:state', tabId })
+  return send<{ frames: FrameInfo[]; job: JobContext | null; auto: boolean; queue: number; settings: Settings }>({ type: 'tab:state', tabId })
 }
 
 /**
@@ -92,13 +94,18 @@ export function App() {
     const scan = await scanFrames(t.id, frameIds)
     setFrames(scan.frames)
     setAts(scan.ats)
-    setPosting(scan.posting)
     const state = await tabState(t.id)
     setQueue(state.queue)
-    if (state.job?.loggedAppId && scan.posting && state.job.posting.url === scan.posting.url) setLogState({ ok: true, appId: state.job.loggedAppId })
+    setArmed(state.auto)
+    // On the application form, keep the job you came from (its description,
+    // score and resume ranking) rather than the bare form page.
+    const job = state.job
+    const current = job && continuesJob(job, scan.posting) ? mergePostingInto(job.posting, scan.posting) : scan.posting
+    setPosting(current)
+    if (job?.loggedAppId && current && job.posting.url === current.url) setLogState({ ok: true, appId: job.loggedAppId })
     setPhase('ready')
-    if (scan.posting) {
-      const c = await runChecks(scan.posting, p)
+    if (current) {
+      const c = await runChecks(current, p)
       setChecks(c)
       setResumeId(c.best?.resumeId ?? rs.find((r) => r.isDefault)?.id ?? rs[0]?.id ?? null)
     } else setResumeId(rs.find((r) => r.isDefault)?.id ?? rs[0]?.id ?? null)
@@ -149,8 +156,16 @@ export function App() {
     }).catch(() => undefined)
   }, [tab?.id, posting, ats, resumeId, match, verdict, checks, resumes])
 
+  const [armed, setArmed] = useState(false)
+
   async function fill() {
     if (!tab?.id) return
+    // On a posting page: fill the application form as soon as "Apply" opens it.
+    if (!hasForm) {
+      await send({ type: 'auto:arm', tabId: tab.id, resumeId })
+      setArmed(true)
+      return
+    }
     setFilling(true)
     setError('')
     try {
@@ -234,10 +249,14 @@ export function App() {
       )}
 
       <div className="flex flex-col gap-2">
-        <Button variant="primary" size="lg" onClick={fill} disabled={filling || !hasForm}>
-          {filling ? <><Spinner /> Filling…</> : 'Fill this page'}
+        <Button variant="primary" size="lg" onClick={fill} disabled={filling || (!hasForm && (!posting || armed))}>
+          {filling ? <><Spinner /> Filling…</> : hasForm ? 'Fill this page' : armed ? 'Will fill the application' : 'Fill the application when it opens'}
         </Button>
-        {!hasForm && <p className="text-center text-xs text-muted">No application form on this page yet.</p>}
+        {!hasForm && (
+          <p className="text-center text-xs text-muted">
+            {armed ? 'Click Apply on the page. The form fills as it opens, here or in a new tab.' : posting ? 'No form here yet. Press this, then Apply.' : 'No application form on this page yet.'}
+          </p>
+        )}
         {error && <p className="text-center text-xs text-bad">{error}</p>}
       </div>
 
@@ -578,16 +597,37 @@ function CaptureForm({ tabId, frames, host, profile }: { tabId: number; frames: 
   )
 }
 
+const SINCE_OPEN = 'zipply-since-open'
+/** Older than this, a status change is old news and an unlogged fill is likely abandoned. */
+const EVENT_DAYS = 14
+const UNLOGGED_DAYS = 7
+/** Expanded, each list shows this many. */
+const SHOW = 5
+
 function SinceLastTime() {
   const [events, setEvents] = useState<StatusEvent[]>([])
   const [unmatched, setUnmatched] = useState<UnmatchedEmail[]>([])
   const [apps, setApps] = useState<AppliedEntry[]>([])
   const [unlogged, setUnlogged] = useState<UnloggedRow[]>([])
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(SINCE_OPEN) === '1'
+    } catch {
+      return false
+    }
+  })
 
   const refresh = useCallback(async () => {
-    setUnlogged(await db.unlogged.orderBy('at').reverse().limit(10).toArray())
-    setEvents(await db.events.orderBy('at').reverse().filter((e) => !e.seen).limit(20).toArray())
-    setUnmatched(await db.unmatched.orderBy('at').reverse().limit(10).toArray())
+    const day = 86_400_000
+    // One row per job, the latest, even if you filled it more than once.
+    const rows = await db.unlogged.where('at').above(Date.now() - UNLOGGED_DAYS * day).reverse().sortBy('at')
+    const seen = new Set<string>()
+    setUnlogged(rows.filter((u) => {
+      const k = `${u.job.posting.company}|${u.job.posting.title}`.toLowerCase()
+      return seen.has(k) ? false : (seen.add(k), true)
+    }))
+    setEvents(await db.events.orderBy('at').reverse().filter((e) => !e.seen && e.at > Date.now() - EVENT_DAYS * day).toArray())
+    setUnmatched(await db.unmatched.orderBy('at').reverse().toArray())
     setApps(await db.applied.orderBy('dateApplied').reverse().limit(200).toArray())
   }, [])
 
@@ -595,50 +635,84 @@ function SinceLastTime() {
     refresh()
   }, [refresh])
 
+  const toggle = () => {
+    setOpen(!open)
+    try {
+      localStorage.setItem(SINCE_OPEN, open ? '0' : '1')
+    } catch {
+      /* private window */
+    }
+  }
+
+  async function clearAll() {
+    await db.events.bulkUpdate(events.map((e) => ({ key: e.id, changes: { seen: true } })))
+    await db.unlogged.clear()
+    await db.unmatched.bulkDelete(unmatched.map((u) => u.messageId))
+    refresh()
+  }
+
   if (!events.length && !unmatched.length && !unlogged.length) return null
+  const offers = events.filter((e) => e.kind === 'offer').length
+  const conflicts = events.filter((e) => e.kind === 'conflict').length
+  const summary = sinceSummary({ offers, conflicts, updates: events.length - offers - conflicts, unlogged: unlogged.length, emails: unmatched.length })
+  const more = (n: number) => (n > SHOW ? <li className="text-xs text-muted">and {n - SHOW} more</li> : null)
+
   return (
-    <Card className="p-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium">Since last time</h3>
-        {events.length > 0 && (
-          <button className="text-xs text-muted hover:text-ink" onClick={async () => {
-            await db.events.bulkUpdate(events.map((e) => ({ key: e.id, changes: { seen: true } })))
-            refresh()
-          }}>Clear</button>
-        )}
+    <Card className="p-3">
+      <div className="flex items-center gap-2" data-testid="since-last-time">
+        <button onClick={toggle} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <Dot tone={offers ? 'ok' : 'accent'} />
+          <span className="min-w-0 flex-1 truncate text-[13px]"><span className="font-medium">Since last time:</span> <span className="text-muted">{summary}</span></span>
+          <span className="shrink-0 text-xs text-muted">{open ? 'Hide' : 'Show'}</span>
+        </button>
+        <button className="shrink-0 text-xs text-muted hover:text-ink" onClick={clearAll} title="Mark everything here as seen">Clear all</button>
       </div>
-      <ul className="mt-2 flex flex-col gap-1.5 text-[13px]">
-        {events.map((e) => (
-          <li key={e.id} className="flex items-start gap-2">
-            <span className="mt-1.5"><Dot tone={e.kind === 'offer' ? 'ok' : e.kind === 'conflict' ? 'warn' : e.to === 'Rejected' ? 'muted' : 'accent'} /></span>
-            <span>
-              <span className="font-medium">{e.company}</span> <span className="text-muted">{e.title}</span>
-              <span className="block text-xs text-muted">{e.kind === 'conflict' ? e.note : `${e.from} → ${e.to}`}{e.kind === 'offer' ? ' · your decision' : ''}</span>
-            </span>
-          </li>
-        ))}
-      </ul>
-      {unlogged.length > 0 && (
-        <div className={cx('flex flex-col gap-2', (events.length > 0) && 'mt-3 border-t border-line pt-3')}>
-          <div className="text-xs text-muted">Filled but not logged</div>
-          {unlogged.map((u) => (
-            <div key={u.id} className="flex items-center gap-2 text-[13px]">
-              <span className="mt-0.5"><Dot tone="warn" /></span>
-              <span className="min-w-0 flex-1 truncate">
-                <span className="font-medium">{u.job.posting.company || 'Unknown company'}</span> <span className="text-muted">{u.job.posting.title}</span>
-              </span>
-              <Button size="sm" onClick={async () => { await send({ type: 'log:unlogged', id: u.id }); refresh() }}>Log it</Button>
-              <Button size="sm" variant="ghost" title="I didn't submit this one" onClick={async () => { await db.unlogged.delete(u.id); refresh() }}>✕</Button>
+      {open && (
+        <div className="mt-2 flex flex-col gap-3 border-t border-line pt-2">
+          {events.length > 0 && (
+            <ul className="flex flex-col gap-1.5 text-[13px]">
+              {events.slice(0, SHOW).map((e) => (
+                <li key={e.id} className="flex items-start gap-2">
+                  <span className="mt-1.5"><Dot tone={e.kind === 'offer' ? 'ok' : e.kind === 'conflict' ? 'warn' : e.to === 'Rejected' ? 'muted' : 'accent'} /></span>
+                  <span className="min-w-0">
+                    <span className="font-medium">{e.company}</span> <span className="text-muted">{e.title}</span>
+                    <span className="block text-xs text-muted">{e.kind === 'conflict' ? e.note : `${e.from} → ${e.to}`}{e.kind === 'offer' ? ' · your decision' : ''}</span>
+                  </span>
+                </li>
+              ))}
+              {more(events.length)}
+            </ul>
+          )}
+          {unlogged.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="text-xs text-muted">Filled but not logged</div>
+              {unlogged.slice(0, SHOW).map((u) => (
+                <div key={u.id} className="flex items-center gap-2 text-[13px]">
+                  <span className="mt-0.5"><Dot tone="warn" /></span>
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="font-medium">{u.job.posting.company || 'Unknown company'}</span> <span className="text-muted">{u.job.posting.title}</span>
+                  </span>
+                  <Button size="sm" onClick={async () => { await send({ type: 'log:unlogged', id: u.id }); refresh() }}>Log it</Button>
+                  <Button size="sm" variant="ghost" title="I didn't submit this one" onClick={async () => {
+                    // Dismiss every copy of this job, not just the latest.
+                    const k = `${u.job.posting.company}|${u.job.posting.title}`.toLowerCase()
+                    await db.unlogged.filter((r) => `${r.job.posting.company}|${r.job.posting.title}`.toLowerCase() === k).delete()
+                    refresh()
+                  }}>✕</Button>
+                </div>
+              ))}
+              {unlogged.length > SHOW && <div className="text-xs text-muted">and {unlogged.length - SHOW} more</div>}
             </div>
-          ))}
-        </div>
-      )}
-      {unmatched.length > 0 && (
-        <div className="mt-3 border-t border-line pt-3">
-          <div className="text-xs text-muted">Emails to assign</div>
-          <ul className="mt-1 flex flex-col gap-2">
-            {unmatched.map((u) => <Unmatched key={u.messageId} u={u} apps={apps} onDone={refresh} />)}
-          </ul>
+          )}
+          {unmatched.length > 0 && (
+            <div>
+              <div className="text-xs text-muted">Emails to sort</div>
+              <ul className="mt-1 flex flex-col gap-2">
+                {unmatched.slice(0, SHOW).map((u) => <Unmatched key={u.messageId} u={u} apps={apps} onDone={refresh} />)}
+                {more(unmatched.length)}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </Card>

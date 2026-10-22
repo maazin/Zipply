@@ -24,6 +24,10 @@ export interface JobContext {
   applied: AppliedCheck | null
   filledAt?: number
   loggedAppId?: string
+  /** When this tab last saw the job (a posting page or a step of its application). */
+  at?: number
+  /** The page where it was last seen, such as the form after "Apply". */
+  lastUrl?: string
 }
 
 export interface FrameInfo {
@@ -77,6 +81,10 @@ export type ContentToBg =
   | { type: 'fill:done'; reports: FieldReport[]; auto: boolean }
   | { type: 'score:posting'; posting: Posting }
   /** Field states changed after a fill (you edited something); not a fill. */
+  | { type: 'job:seen'; posting: Posting }
+  | { type: 'auto:get' }
+  | { type: 'auto:set'; resumeId: string | null }
+  | { type: 'auto:clear' }
   | { type: 'report:update'; reports: FieldReport[] }
 
 // Panel / options → service worker
@@ -88,6 +96,7 @@ export type PageToBg =
   | { type: 'ai:tips'; tabId: number }
   | { type: 'google:connect' }
   | { type: 'sheet:create' }
+  | { type: 'auto:arm'; tabId: number; resumeId: string | null }
   | { type: 'sheet:check' }
   | { type: 'build' }
   | { type: 'google:disconnect' }

@@ -141,7 +141,10 @@ test('Fills a Greenhouse form on its real hostname', async () => {
   await page.goto('https://jobs.lever.co/globex/1b2c3d4e/apply')
   const panel = await context.newPage()
   await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
-  await expect(panel.getByText('Filled but not logged')).toBeVisible({ timeout: 10_000 })
+  // One summary line; open it to see the job.
+  await expect(panel.getByTestId('since-last-time')).toContainText('1 to log', { timeout: 10_000 })
+  await panel.getByRole('button', { name: /Since last time/ }).click()
+  await expect(panel.getByText('Filled but not logged')).toBeVisible()
   await expect(panel.getByText('Data Analyst I')).toBeVisible()
   await panel.close()
   await page.close()
@@ -431,10 +434,148 @@ test('Holds 10 resumes, ranks all 10, and refuses an 11th', async () => {
 
   await section.locator('textarea').fill('Data Analyst. Requirements: SQL, Python, Tableau and Excel. Nice to have: Pandas. You will build dashboards for operations teams.')
   await opts.getByRole('button', { name: 'Compare resumes' }).click()
+  // The top 3 first; the rest on request.
+  await expect(opts.getByTestId('resume-ranking').locator('li')).toHaveCount(3)
+  await opts.getByRole('button', { name: 'Show all 10' }).click()
   await expect(opts.getByTestId('resume-ranking').locator('li')).toHaveCount(10)
   await expect(opts.getByTestId('resume-ranking').locator('li').first()).toContainText('resume.pdf')
 
   await opts.close()
+})
+
+const jobOf = (pattern: string) =>
+  worker.evaluate(async (p) => {
+    const tabs = await chrome.tabs.query({ url: p })
+    if (!tabs.length) return null
+    const key = `job:${tabs[tabs.length - 1].id}`
+    return ((await chrome.storage.session.get(key))[key] as { posting: { title: string; company: string; description: string; url: string } } | undefined) ?? null
+  }, pattern)
+
+test('Keeps the job from a posting page through "Apply" to the form on another site', async () => {
+  const form = readFileSync(join(FIX, 'custom.html'), 'utf8')
+  const ld = JSON.stringify({ '@context': 'https://schema.org', '@type': 'JobPosting', title: 'Analytics Engineer', hiringOrganization: { '@type': 'Organization', name: 'Hooli' }, description: '<p>Requirements:</p><ul><li>SQL and dbt</li><li>Python</li></ul>' + '<p>You will own the warehouse models that every team reads from.</p>'.repeat(4) })
+  await context.route('https://jobs.hooli.xyz/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: `<title>Analytics Engineer | Hooli</title><script type="application/ld+json">${ld}</script><h1>Analytics Engineer</h1><p>About the role.</p><a id="apply" href="https://apply.hooli-talent.net/form">Apply</a><a id="apply-new" target="_blank" href="https://apply.hooli-talent.net/form2">Apply in new tab</a>` }),
+  )
+  await context.route('https://apply.hooli-talent.net/**', (route) => route.fulfill({ contentType: 'text/html', body: form }))
+
+  // Same tab: the posting page is remembered, then "Apply" goes to another site.
+  const page = await context.newPage()
+  await page.goto('https://jobs.hooli.xyz/analytics-engineer')
+  await expect.poll(async () => (await jobOf('https://jobs.hooli.xyz/*'))?.posting.title, { timeout: 10_000 }).toBe('Analytics Engineer')
+  await page.click('#apply')
+  await page.waitForURL('https://apply.hooli-talent.net/form')
+  await page.waitForTimeout(2000)
+  const kept = await jobOf('https://apply.hooli-talent.net/*')
+  // The form page's own heading ("Junior Data Engineer") doesn't replace the job.
+  expect(kept?.posting).toMatchObject({ title: 'Analytics Engineer', company: 'Hooli' })
+  expect(kept?.posting.description).toContain('warehouse models')
+
+  // New tab: "Apply" that opens a tab carries the job over.
+  await page.goto('https://jobs.hooli.xyz/analytics-engineer')
+  await page.waitForTimeout(1000)
+  const [popup] = await Promise.all([context.waitForEvent('page'), page.click('#apply-new')])
+  await popup.waitForURL('https://apply.hooli-talent.net/form2')
+  await popup.waitForTimeout(1500)
+  expect((await jobOf('https://apply.hooli-talent.net/form2'))?.posting).toMatchObject({ title: 'Analytics Engineer', company: 'Hooli' })
+  await popup.close()
+  await page.close()
+})
+
+test('Keeps the LinkedIn job when Apply goes to the company form', async () => {
+  const page = await context.newPage()
+  await page.goto('https://www.linkedin.com/jobs/search/?currentJobId=111')
+  await expect.poll(async () => (await jobOf('https://www.linkedin.com/*'))?.posting.company, { timeout: 10_000 }).toBe('Globex')
+  await page.goto('https://careers.initech.com/jobs/42')
+  await page.waitForTimeout(2000)
+  const kept = await jobOf('https://careers.initech.com/*')
+  expect(kept?.posting).toMatchObject({ title: 'Data Analyst', company: 'Globex' })
+  expect(kept?.posting.description).toContain('SQL and Python')
+  await page.close()
+})
+
+test('Auto-fill carries on after Apply moves to another site', async () => {
+  const page = await context.newPage()
+  await page.goto('https://www.hooli.com/careers/apply')
+  await page.waitForTimeout(1200)
+  await worker.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: 'https://www.hooli.com/*' })
+    await chrome.tabs.sendMessage(tab.id!, { type: 'fill', resumeId: null }, { frameId: 0 })
+  })
+  await expect(page.locator('input[name="applicant_given"]')).toHaveValue('Ada')
+  // Next step on a different site, same tab: fills without pressing Fill again.
+  await page.goto('https://careers.initech.com/jobs/43')
+  await expect(page.locator('input[name="applicant_given"]')).toHaveValue('Ada', { timeout: 10_000 })
+  await expect(page.locator('input[name="contact"]')).toHaveValue('ada@example.com')
+  // A tab you open separately (not from the filled one) stays untouched.
+  const [other] = await Promise.all([
+    context.waitForEvent('page'),
+    worker.evaluate(() => chrome.tabs.create({ url: 'https://careers.initech.com/jobs/44' })),
+  ])
+  await other.waitForLoadState()
+  await other.waitForTimeout(2500)
+  await expect(other.locator('input[name="applicant_given"]')).toHaveValue('')
+  await other.close()
+  await page.close()
+})
+
+test('"Fill the application when it opens" on a posting page fills the form after Apply', async () => {
+  const page = await context.newPage()
+  await page.goto('https://jobs.hooli.xyz/analytics-engineer')
+  const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://jobs.hooli.xyz/*' }))[0].id!)
+  const panel = await context.newPage()
+  await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
+  await panel.getByRole('button', { name: 'Fill the application when it opens' }).click()
+  await expect(panel.getByRole('button', { name: 'Will fill the application' })).toBeDisabled()
+  await panel.close()
+
+  // Same tab, another site.
+  await page.click('#apply')
+  await page.waitForURL('https://apply.hooli-talent.net/form')
+  await expect(page.locator('input[name="applicant_given"]')).toHaveValue('Ada', { timeout: 10_000 })
+
+  // Or a new tab, right after.
+  await page.goto('https://jobs.hooli.xyz/analytics-engineer')
+  const [popup] = await Promise.all([context.waitForEvent('page'), page.click('#apply-new')])
+  await expect(popup.locator('input[name="applicant_given"]')).toHaveValue('Ada', { timeout: 10_000 })
+  await popup.close()
+  await page.close()
+})
+
+test('"Since last time" is one line until you open it', async () => {
+  const page = await context.newPage()
+  await page.goto('https://jobs.lever.co/globex/1b2c3d4e/apply')
+  const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://jobs.lever.co/*' }))[0].id!)
+  const panel = await context.newPage()
+  await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
+  await panel.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((res, rej) => {
+      const r = indexedDB.open('zipply')
+      r.onsuccess = () => res(r.result)
+      r.onerror = () => rej(r.error)
+    })
+    const tx = db.transaction(['events', 'unlogged'], 'readwrite')
+    for (let i = 0; i < 12; i++)
+      tx.objectStore('events').put({ id: `e${i}`, appId: `a${i}`, company: `Company ${i}`, title: 'Analyst', from: 'Applied', to: 'Interview', at: Date.now() - i * 1000, seen: false, kind: 'change', note: '' })
+    // Old news is left out.
+    tx.objectStore('events').put({ id: 'old', appId: 'x', company: 'Old Co', title: 'Analyst', from: 'Applied', to: 'Rejected', at: Date.now() - 30 * 86_400_000, seen: false, kind: 'change', note: '' })
+    await new Promise((r) => (tx.oncomplete = r))
+    // Start collapsed (it remembers if you opened it before).
+    localStorage.removeItem('zipply-since-open')
+  })
+  await panel.reload()
+  const since = panel.getByTestId('since-last-time')
+  await expect(since).toContainText('12 status updates', { timeout: 15_000 })
+  await expect(panel.getByText('Company 0')).toHaveCount(0)
+  await since.getByRole('button', { name: /Since last time/ }).click()
+  await expect(panel.getByText('Company 0', { exact: true })).toBeVisible()
+  await expect(panel.getByText('Company 5', { exact: true })).toHaveCount(0)
+  await expect(panel.getByText('and 7 more')).toBeVisible()
+  await expect(panel.getByText('Old Co')).toHaveCount(0)
+  await since.getByRole('button', { name: 'Clear all' }).click()
+  await expect(since).toHaveCount(0)
+  await panel.close()
+  await page.close()
 })
 
 test('No console errors on extension pages', () => {

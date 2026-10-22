@@ -1,10 +1,18 @@
 // Your resumes ranked for one job: score bars, what each covers that the best
 // doesn't, and a line on why the best one wins. Click a row to use that resume.
 import type { ResumeComparison } from '@/core/score/compare'
+import { useState } from 'react'
 import { Chip, cx } from './kit'
 
+/** Rows shown before "Show all". */
+const TOP = 3
+
 export function ResumeRanking({ comparison, selected, onSelect }: { comparison: ResumeComparison; selected?: string | null; onSelect?: (id: string) => void }) {
-  const { rows, bestId, close, why } = comparison
+  const { bestId, close, why } = comparison
+  const [all, setAll] = useState(false)
+  // The top few, plus the one you picked if it's further down.
+  const rows = all ? comparison.rows : comparison.rows.filter((r, i) => i < TOP || r.resumeId === selected)
+  const hidden = comparison.rows.length - rows.length
   return (
     <div className="flex flex-col gap-2" data-testid="resume-ranking">
       <ul className="flex flex-col gap-1">
@@ -47,7 +55,12 @@ export function ResumeRanking({ comparison, selected, onSelect }: { comparison: 
           )
         })}
       </ul>
-      {why && rows.length > 1 && <p className="text-xs text-muted">{why}</p>}
+      {(hidden > 0 || all) && comparison.rows.length > TOP && (
+        <button className="self-start text-xs text-muted hover:text-ink" onClick={() => setAll(!all)}>
+          {all ? 'Show fewer' : `Show all ${comparison.rows.length}`}
+        </button>
+      )}
+      {why && comparison.rows.length > 1 && <p className="text-xs text-muted">{why}</p>}
     </div>
   )
 }
