@@ -11,7 +11,7 @@ import { session } from '@/lib/store'
 import { aiReady } from './ai/router'
 import { coverLetter, draftAnswer, mapFields, tailoringTips } from './ai/tasks'
 import { getToken, NotConnectedError, SCOPES, signOut, userEmail } from './google'
-import { ensureSheet, refreshApplied } from './sheets'
+import { ensureSheet, NoSheetError, refreshApplied } from './sheets'
 import { flushQueue, queueSize } from './queue'
 import { bareContext, logJob } from './log'
 import { assignEmail, messageSummary, syncGmail } from './gmail'
@@ -55,7 +55,9 @@ async function backgroundRefresh() {
   // once you've granted access, and otherwise they keep waiting.
   await flushQueue().catch((e) => logError('queue', e))
   const s = await getSettings()
-  if (s.googleEmail || s.sheetId) await refreshApplied().catch((e) => logError('refresh sheet', e))
+  if (s.googleEmail || s.sheetId) await refreshApplied().catch((e) => {
+      if (!(e instanceof NoSheetError)) return logError('refresh sheet', e)
+    })
 }
 
 // ---------- Per-tab state ----------
@@ -253,12 +255,22 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
     case 'google:connect': {
       const s = await getSettings()
       await getToken(true, s.gmailEnabled ? [SCOPES.drive, SCOPES.gmail] : [SCOPES.drive])
-      const sheetId = await ensureSheet(true)
+      // Signed in first, so a sheet problem never leaves a "Sign in" button to press again.
       const email = (await userEmail()) || 'Connected'
-      const settings = await updateSettings({ googleEmail: email })
+      await updateSettings({ googleEmail: email })
+      const sheetId = await ensureSheet({ create: true, interactive: true })
       await refreshApplied().catch(() => undefined)
       await flushQueue().catch(() => undefined)
-      return { email, sheetId, sheetUrl: settings.sheetUrl }
+      return { email, sheetId, sheetUrl: (await getSettings()).sheetUrl }
+    }
+    case 'sheet:check':
+      // Never creates: clears the warning if the sheet is back (restored from trash).
+      return { sheetId: await ensureSheet({ interactive: true }) }
+    case 'sheet:create': {
+      // You asked for it: replaces a sheet that is gone (never one that still exists).
+      const sheetId = await ensureSheet({ force: true, interactive: true })
+      await flushQueue().catch(() => undefined)
+      return { sheetId, sheetUrl: (await getSettings()).sheetUrl }
     }
     case 'google:disconnect':
       await signOut()

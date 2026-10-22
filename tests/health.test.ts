@@ -52,7 +52,7 @@ describe('health checks', () => {
     await updateSettings({ sheetId: 's1', sheetReady: false })
     expect(byName(await healthChecks(), 'Sheet')).toMatchObject({ ok: false, detail: expect.stringMatching(/setup unfinished/) })
     state.sheetStatus = 404
-    expect(byName(await healthChecks(), 'Sheet').detail).toMatch(/Deleted/)
+    expect(byName(await healthChecks(), 'Sheet').detail).toMatch(/Can't be found; choose Create a new sheet/)
   })
 
   it('checks the Gemini key without spending quota and explains a bad key', async () => {

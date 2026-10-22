@@ -2,7 +2,7 @@
 import type { JobRecord, QueueItem } from '@/shared/types'
 import { db } from '@/lib/db'
 import { logError } from '@/lib/errlog'
-import { appendRecord, MissingRowError, sheetAppIds, writeStatus, type StatusUpdate } from './sheets'
+import { appendRecord, MissingRowError, NoSheetError, SheetMissingError, sheetAppIds, writeStatus, type StatusUpdate } from './sheets'
 import { NotConnectedError } from './google'
 
 export async function enqueue(op: QueueItem['op'], payload: unknown, error: string): Promise<void> {
@@ -30,7 +30,11 @@ export async function flushQueue(): Promise<{ done: number; left: number }> {
         if (item.op === 'append') {
           const rec = item.payload as JobRecord
           // Every queued append was already tried once, so always check.
-          inSheet ??= await sheetAppIds()
+          // No sheet yet means nothing can be in it; the append below makes it.
+          inSheet ??= await sheetAppIds().catch((e) => {
+            if (e instanceof NoSheetError) return new Set<string>()
+            throw e
+          })
           if (inSheet.has(rec.appId)) {
             await db.queue.delete(item.id!)
             done++
@@ -54,7 +58,8 @@ export async function flushQueue(): Promise<{ done: number; left: number }> {
           attempts: item.attempts + 1,
           lastError: e instanceof Error ? e.message : String(e),
         })
-        if (e instanceof NotConnectedError || !navigator.onLine) break
+        // Signed out, offline, or the sheet is gone (you decide what happens): stop for now.
+        if (e instanceof NotConnectedError || e instanceof SheetMissingError || !navigator.onLine) break
       }
     }
   } finally {

@@ -87,6 +87,8 @@ export type PageToBg =
   | { type: 'ai:cover'; tabId: number }
   | { type: 'ai:tips'; tabId: number }
   | { type: 'google:connect' }
+  | { type: 'sheet:create' }
+  | { type: 'sheet:check' }
   | { type: 'google:disconnect' }
   | { type: 'gmail:enable'; enabled: boolean }
   | { type: 'gmail:sync' }

@@ -58,6 +58,20 @@ export function Connections() {
       <div className="flex flex-col gap-6">
         <div>
           <h3 className="text-sm font-semibold">Google Sheets</h3>
+          {s.sheetMissing && (
+            <div className="mt-2 rounded-lg border border-warn/40 p-3 text-sm" role="alert">
+              <p className="text-warn">Your Zipply sheet can't be found. It may have been deleted or moved to Drive's trash.</p>
+              <p className="mt-1 text-xs text-muted">If it's in the trash, restore it and press Check again. Zipply won't make a new sheet unless you ask. New applications wait here meanwhile.</p>
+              <div className="mt-2 flex gap-2">
+                <Button size="sm" disabled={!!busy} onClick={() => run('check', () => send({ type: 'sheet:check' }))}>
+                  {busy === 'check' && <Spinner />} Check again
+                </Button>
+                <Button size="sm" variant="primary" disabled={!!busy} onClick={() => run('create', () => send({ type: 'sheet:create' }))}>
+                  {busy === 'create' && <Spinner />} Create a new sheet
+                </Button>
+              </div>
+            </div>
+          )}
           {s.googleEmail ? (
             <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
               <span className="text-muted">Signed in as {s.googleEmail}</span>
@@ -69,7 +83,8 @@ export function Connections() {
               <Button variant="primary" disabled={!!busy} onClick={() => run('connect', () => send({ type: 'google:connect' }))}>
                 {busy === 'connect' && <Spinner />} Sign in with Google
               </Button>
-              <span className="text-xs text-muted">Creates one sheet. Zipply can only touch files it created.</span>
+              <span className="text-xs text-muted">{s.sheetId ? 'Uses your existing sheet.' : 'Creates one sheet.'} Zipply can only touch files it created.</span>
+              {s.sheetUrl && <a className="text-sm text-accent underline" href={s.sheetUrl} target="_blank" rel="noreferrer">Open your sheet</a>}
             </div>
           )}
         </div>

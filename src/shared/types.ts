@@ -338,6 +338,8 @@ export interface Settings {
   cloudEmailFallback: boolean
   sheetId: string
   sheetUrl: string
+  /** The saved sheet returned 404; you choose whether to make a new one. */
+  sheetMissing: boolean
   /** Header row and Dashboard tab written. */
   sheetReady: boolean
   /** Show match scores on LinkedIn and Indeed job listings. */

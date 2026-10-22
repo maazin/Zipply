@@ -40,7 +40,7 @@ export async function healthChecks(): Promise<HealthCheck[]> {
     out.push({ name: 'Google', ok: false, detail: e instanceof NotConnectedError ? 'Not signed in; click Sign in with Google' : scrub(String((e as Error).message ?? e)) })
   }
 
-  if (!s.sheetId) out.push({ name: 'Sheet', ok: false, detail: google ? 'No sheet yet; it is created on your next log' : 'Needs Google first' })
+  if (!s.sheetId) out.push({ name: 'Sheet', ok: false, detail: google ? 'No sheet yet; it is created when you log your first application' : 'Needs Google first' })
   else if (!google) out.push({ name: 'Sheet', ok: null, detail: 'Needs Google first' })
   else {
     try {
@@ -48,7 +48,7 @@ export async function healthChecks(): Promise<HealthCheck[]> {
       out.push({ name: 'Sheet', ok: s.sheetReady, detail: s.sheetReady ? 'Reachable' : 'Reachable, setup unfinished; it finishes on the next log' })
     } catch (e) {
       const st = e instanceof HttpError ? e.status : 0
-      out.push({ name: 'Sheet', ok: false, detail: st === 404 ? 'Deleted; a new one is made on the next log' : st === 403 ? 'No access to the saved sheet' : scrub(String((e as Error).message)) })
+      out.push({ name: 'Sheet', ok: false, detail: st === 404 ? "Can't be found; choose Create a new sheet under Connections" : st === 403 ? 'No access to the saved sheet' : scrub(String((e as Error).message)) })
     }
   }
 
