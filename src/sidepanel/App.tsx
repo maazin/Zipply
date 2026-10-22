@@ -6,6 +6,7 @@ import { computeVerdict } from '@/core/score/verdict'
 import { getProfile, listResumes } from '@/lib/repo'
 import { isLocked, unlock } from '@/lib/keys'
 import { runChecks, type ChecksResult } from '@/lib/checks'
+import { ResumeRanking } from '@/ui/ResumeRanking'
 import { db, type UnloggedRow } from '@/lib/db'
 import { Button, Card, Chip, Dot, Empty, Input, Select, Spinner, TextArea, cx } from '@/ui/kit'
 import contentScript from '@/content/index.ts?script'
@@ -363,20 +364,19 @@ function MatchCard({ checks, match, resumeId, onResume, tabId }: { checks: Check
           <div className="text-2xl font-semibold tabular-nums">{match.score}</div>
         </div>
         <div className="flex min-w-0 flex-1 flex-col items-end gap-1.5">
-          {checks.matches.length > 1 ? (
-            <Select value={resumeId ?? ''} onChange={(e) => onResume(e.target.value)} className="max-w-48">
-              {checks.matches.map((m) => (
-                <option key={m.resumeId} value={m.resumeId}>{(m.tag || m.name)} · {m.score}</option>
-              ))}
-            </Select>
-          ) : (
-            <span className="truncate text-[13px] text-muted">{match.tag || match.name}</span>
-          )}
+          <span className="max-w-full truncate text-[13px] text-muted">{match.tag || match.name}</span>
           <button onClick={() => setShowAts(!showAts)} aria-expanded={showAts}>
             <Chip tone={gradeTone} title="Can an ATS read this resume?">ATS read: {match.ats.grade}</Chip>
           </button>
         </div>
       </div>
+
+      {checks.matches.length > 1 && (
+        <div className="mt-3 border-t border-line pt-3">
+          <div className="mb-1.5 text-xs text-muted">Your resumes for this job</div>
+          <ResumeRanking comparison={checks.comparison} selected={resumeId} onSelect={onResume} />
+        </div>
+      )}
 
       {showAts && (
         <ul className="mt-3 flex flex-col gap-1 border-t border-line pt-3 text-[13px]">

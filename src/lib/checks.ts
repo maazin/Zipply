@@ -2,6 +2,7 @@
 import type { AppliedCheck, AtsReport, MatchResult, Posting, Profile, RedFlagResult, VerdictResult } from '@/shared/types'
 import { extractKeywords } from '@/core/score/keywords'
 import { rankResumes } from '@/core/score/matchScore'
+import { compareResumes, type ResumeComparison } from '@/core/score/compare'
 import { computeVerdict } from '@/core/score/verdict'
 import { computeRedFlags } from '@/core/score/redFlags'
 import { checkApplied } from '@/core/score/applied'
@@ -12,6 +13,8 @@ import { getResumeTexts } from './repo'
 export interface ChecksResult {
   matches: (MatchResult & { tag: string; name: string; ats: AtsReport })[]
   best: (MatchResult & { tag: string; name: string; ats: AtsReport }) | null
+  /** All your resumes side by side, best first. */
+  comparison: ResumeComparison
   verdict: VerdictResult
   redFlags: RedFlagResult
   applied: AppliedCheck
@@ -29,8 +32,20 @@ export async function runChecks(posting: Posting, profile: Profile): Promise<Che
   return {
     matches,
     best,
+    comparison: compareResumes(matches),
     verdict: computeVerdict({ posting, profile, matchScore: best?.score ?? null }),
     redFlags: computeRedFlags(posting, profile, applied),
     applied: checkApplied(posting, applied),
   }
+}
+
+/** Rank your resumes against any job description you paste in. */
+export async function compareDescription(description: string, profile: Profile) {
+  const resumes = await getResumeTexts()
+  const ranked = rankResumes(resumes.map((r) => ({ id: r.id, text: r.text })), description, profile)
+  const matches = ranked.map((m) => {
+    const r = resumes.find((x) => x.id === m.resumeId)!
+    return { ...m, tag: r.tag, name: r.name }
+  })
+  return { matches, comparison: compareResumes(matches) }
 }

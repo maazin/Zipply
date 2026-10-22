@@ -9,6 +9,7 @@
  */
 import type { MatchResult, Profile } from '@/shared/types'
 import { extractKeywords, hasSkill, skillDef, type Keyword } from './keywords'
+import { byFit } from './compare'
 
 // Weights must sum to 1.0 (same as Resume-Matcher's _WEIGHTS).
 export const WEIGHTS = { keywordMatch: 0.55, skillsCoverage: 0.25, sectionCompleteness: 0.2 }
@@ -152,5 +153,5 @@ export function rankResumes(
         otherResumeTexts: resumes.filter((o) => o.id !== r.id).map((o) => o.text),
       }),
     )
-    .sort((a, b) => b.score - a.score)
+    .sort(byFit)
 }

@@ -8,7 +8,8 @@ Built by [Maazin Shaikh](https://www.linkedin.com/in/maazin-shaikh).
 - **Works on any form.** Dedicated adapters for the five big ATS platforms, plus a rule-based matcher that reads any unknown form. AI only fills the gaps, and it never sees your personal values.
 - **Before you apply.** An Apply, Maybe or Skip verdict, a match score with the keywords you can add (and the real gaps you shouldn't fake), red flags, an already-applied warning, and an ATS readability grade for each resume.
 - **A tracker that keeps itself current.** Confirmed submissions append a row to a sheet Zipply creates, with a Dashboard tab of plain formulas. Optional Gmail sync moves each application's status forward.
-- **Scores on job listings.** Open a job on LinkedIn or Indeed and a small match score appears by its title and on its card, so you can skip bad fits before opening the application.
+- **Every resume, ranked.** Keep up to 10 resumes. For each job, all of them are scored side by side: the best match is picked for you, with how far behind each other one is and what it covers or misses. Click another to use it instead. On the Resumes page, paste a description from anywhere (an email, a PDF) to compare without opening the posting.
+- **Scores on job listings.** Open a job on LinkedIn or Indeed and a small match score appears by its title and on its card (with your best resume's name when you have more than one; hover for the rest), so you can skip bad fits before opening the application.
 - **$0 to run.** On-device Gemini Nano handles anything private; Gemini's free API tier writes drafts. Rules run first, so most fills never call a model.
 
 ## How it works
@@ -99,6 +100,7 @@ All rule-based, in the browser, with no AI calls.
 | Can add / Real gap | A missing keyword is **Can add** if it's in your profile or another resume, otherwise a **Real gap**. Only Can add terms become tips. |
 | Verdict | Role fit, Level, Logistics, Pay. **Apply** at 70+ with nothing failing, **Maybe** at 50 to 69 or one warning, **Skip** below 50 or on a hard blocker (no sponsorship when you need it, a blocklisted company, a clearance you don't have). Thresholds are editable. Skip never blocks filling. |
 | Red flags | Posted 30+ days ago, same title already in your sheet within 90 days, no salary range or one wider than 50% of its floor, a vague posting, contract wording when you want full-time. Shown as High confidence / Proceed with caution / Suspicious; never changes the score. |
+| Best resume | Every resume gets the score above. The highest wins; a tie goes to the one covering more posting terms. Within 3 points is called a close call, with what the runner-up covers instead, so you can pick on fit. |
 | Listing scores | On LinkedIn and Indeed, only jobs you open are scored (the full description from the detail pane, never a background fetch). The score shows by the title and stays on that job's card. Turn it off under Connections. |
 | Already applied | Instant lookup by company and job ID or posting URL, plus a softer "Possibly applied" for the same company and a near-identical title within 60 days. |
 | ATS readability | pdf.js text layer (200+ characters per page), email and phone as plain body text, under 1% broken or ligature characters, reading order across columns, Experience / Education / Skills headings, keyword coverage on the extracted text. Graded Good, Fix or Broken. |

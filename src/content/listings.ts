@@ -74,6 +74,8 @@ export interface ListingScore {
   verdict: Verdict
   reason: string
   applied: boolean
+  /** Your resumes for this job, best first. */
+  resumes?: { label: string; score: number }[]
 }
 
 const COLORS: Record<Verdict, string> = { Apply: '#15803d', Maybe: '#b45309', Skip: '#c42121' }
@@ -86,9 +88,30 @@ export function pill(doc: Document, jobId: string, s: ListingScore): HTMLElement
   host.style.verticalAlign = 'middle'
   const root = host.attachShadow({ mode: 'open' })
   const color = s.applied ? '#6b6b76' : COLORS[s.verdict]
-  const label = s.applied ? 'Applied' : s.score == null ? s.verdict : `${s.score} · ${s.verdict}`
-  root.innerHTML = `<span title="Zipply: ${s.reason.replace(/"/g, '&quot;')}" style="display:inline-flex;align-items:center;gap:4px;font:600 11px/1.6 system-ui,-apple-system,sans-serif;color:${color};border:1px solid ${color}55;border-radius:999px;padding:0 7px;background:transparent;white-space:nowrap">${label}</span>`
+  const label = pillLabel(s)
+  root.innerHTML = `<span title="${esc(pillTitle(s))}" style="display:inline-flex;align-items:center;gap:4px;font:600 11px/1.6 system-ui,-apple-system,sans-serif;color:${color};border:1px solid ${color}55;border-radius:999px;padding:0 7px;background:transparent;white-space:nowrap">${label}</span>`
   return host
+}
+
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
+const short = (t: string) => (t.length > 16 ? `${t.slice(0, 15)}…` : t)
+
+/** "78 · Apply", plus the best resume's name when you have more than one. */
+export function pillLabel(s: ListingScore): string {
+  if (s.applied) return 'Applied'
+  const base = s.score == null ? s.verdict : `${s.score} · ${s.verdict}`
+  const best = s.resumes?.[0]
+  return best && s.resumes!.length > 1 ? `${base} · ${esc(short(best.label))}` : base
+}
+
+/** The hover text: the verdict's reason, then every resume's score. */
+export function pillTitle(s: ListingScore): string {
+  const lines = [`Zipply: ${s.reason}`]
+  if (s.resumes && s.resumes.length > 1) {
+    lines.push(`Best resume: ${s.resumes[0].label} (${s.resumes[0].score})`)
+    lines.push(`Others: ${s.resumes.slice(1).map((r) => `${r.label} ${r.score}`).join(', ')}`)
+  }
+  return lines.join('\n')
 }
 
 const HEADING = /^H[1-6]$/

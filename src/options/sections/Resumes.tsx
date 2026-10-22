@@ -3,7 +3,10 @@ import type { AtsReport, ResumeMeta } from '@/shared/types'
 import { atsReport } from '@/core/score/atsCheck'
 import { deleteResume, getResume, listResumes, MAX_RESUMES, saveResume, updateResumeMeta } from '@/lib/repo'
 import { ACCEPT, readResumeFile } from '@/lib/resumeFile'
-import { Button, Chip, Dot, Empty, Input, Spinner } from '@/ui/kit'
+import { compareDescription } from '@/lib/checks'
+import { getProfile } from '@/lib/repo'
+import { Button, Chip, Dot, Empty, Input, Spinner, TextArea } from '@/ui/kit'
+import { ResumeRanking } from '@/ui/ResumeRanking'
 import { Section } from '../App'
 
 export function Resumes() {
@@ -88,6 +91,61 @@ export function Resumes() {
         </label>
       )}
       {error && <p className="mt-2 text-xs text-bad">{error}</p>}
+      {list.length > 0 && <CompareJob count={list.length} />}
     </Section>
+  )
+}
+
+/** Paste any job description and see every resume scored against it. */
+function CompareJob({ count }: { count: number }) {
+  const [text, setText] = useState('')
+  const [result, setResult] = useState<Awaited<ReturnType<typeof compareDescription>> | null>(null)
+  const [busy, setBusy] = useState(false)
+  const short = text.trim().length < 80
+  const best = result?.matches[0]
+
+  async function run() {
+    setBusy(true)
+    try {
+      setResult(await compareDescription(text, await getProfile()))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-6 border-t border-line pt-4">
+      <div className="text-sm font-medium">Compare against a job description</div>
+      <p className="mt-0.5 text-xs text-muted">
+        Paste a posting from anywhere (an email, a PDF, a careers page) to see which {count > 1 ? 'resume fits it best' : 'parts of your resume fit it'}. Nothing leaves your browser.
+      </p>
+      <TextArea className="mt-2 min-h-28" placeholder="Paste the job description" value={text} onChange={(e) => { setText(e.target.value); setResult(null) }} />
+      <div className="mt-2 flex items-center gap-3">
+        <Button size="sm" variant="primary" disabled={short || busy} onClick={run}>{busy ? <Spinner /> : null} Compare {count > 1 ? 'resumes' : ''}</Button>
+        {short && text.trim() && <span className="text-xs text-muted">Paste the full description, not just the title.</span>}
+      </div>
+      {result && best && (
+        <div className="mt-4 flex flex-col gap-3">
+          <ResumeRanking comparison={result.comparison} />
+          {(best.canAdd.length > 0 || best.realGap.length > 0) && (
+            <div className="flex flex-col gap-2 rounded-lg bg-sunken p-3">
+              <div className="text-xs font-medium">For {best.tag || best.name}</div>
+              {best.canAdd.length > 0 && (
+                <div>
+                  <div className="text-xs text-muted">Can add (you have these)</div>
+                  <div className="mt-1 flex flex-wrap gap-1">{best.canAdd.map((k) => <Chip key={k} tone="warn">{k}</Chip>)}</div>
+                </div>
+              )}
+              {best.realGap.length > 0 && (
+                <div>
+                  <div className="text-xs text-muted">Real gaps (not in your profile)</div>
+                  <div className="mt-1 flex flex-wrap gap-1">{best.realGap.map((k) => <Chip key={k}>{k}</Chip>)}</div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

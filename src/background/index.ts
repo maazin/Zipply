@@ -173,11 +173,19 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
       return null
     case 'score:posting': {
       if (!(await getSettings()).listingScores) return { disabled: true }
-      const hit = scoreCache.get(msg.posting.url)
+      // Keyed by your resumes too, so adding, removing or retagging one rescores.
+      const key = `${msg.posting.url}|${(await listResumes()).map((m) => `${m.id}:${m.tag}`).join(',')}`
+      const hit = scoreCache.get(key)
       if (hit && Date.now() - hit.at < 10 * 60_000) return hit.result
       const c = await runChecks(msg.posting, await getProfile())
-      const result = { score: c.best?.score ?? null, verdict: c.verdict.verdict, reason: c.verdict.reason, applied: Boolean(c.applied.alreadyApplied) }
-      scoreCache.set(msg.posting.url, { at: Date.now(), result })
+      const result = {
+        score: c.best?.score ?? null,
+        verdict: c.verdict.verdict,
+        reason: c.verdict.reason,
+        applied: Boolean(c.applied.alreadyApplied),
+        resumes: c.comparison.rows.map((r) => ({ label: r.label, score: r.score })),
+      }
+      scoreCache.set(key, { at: Date.now(), result })
       return result
     }
     case 'fill:done': {

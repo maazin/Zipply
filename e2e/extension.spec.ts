@@ -359,6 +359,56 @@ test('Saves a form for testing, with nothing personal in it', async () => {
   await page.close()
 })
 
+test('Ranks all your resumes for a job and suggests the best', async () => {
+  // A second resume: frontend, next to the data analyst PDF.
+  const opts = await context.newPage()
+  opts.on('pageerror', (e) => errors.push(e.message))
+  await opts.goto(`chrome-extension://${extId}/src/options/index.html`)
+  await opts.locator('#resumes input[type=file]').setInputFiles(join(FIX, 'resume-frontend.docx'))
+  await expect(opts.locator('#resumes').getByText('resume-frontend.docx')).toBeVisible({ timeout: 15_000 })
+  await expect(opts.locator('#resumes').getByText('Keep up to 10 versions', { exact: false })).toBeVisible()
+  await opts.locator('#resumes input[placeholder="Tag"]').nth(1).fill('Frontend')
+
+  // Paste a description on the Resumes page.
+  const box = opts.locator('#resumes textarea')
+  await box.fill('Frontend Engineer. Requirements: React, TypeScript, CSS and Node. Nice to have: Figma. You will build interfaces for millions of people.')
+  await opts.getByRole('button', { name: 'Compare resumes' }).click()
+  const ranking = opts.getByTestId('resume-ranking')
+  await expect(ranking.locator('li')).toHaveCount(2)
+  await expect(ranking.locator('li').first()).toContainText('Frontend')
+  await expect(ranking.locator('li').first()).toContainText(/Best/)
+  await expect(ranking).toContainText(/^.*Frontend scores \d+ points above resume\.pdf: it covers /)
+  await box.fill('Data Analyst. Requirements: SQL, Python, Tableau and Excel. Nice to have: Pandas. You will build dashboards for operations teams.')
+  await opts.getByRole('button', { name: 'Compare resumes' }).click()
+  await expect(ranking.locator('li').first()).toContainText('resume.pdf')
+  await opts.close()
+
+  // The side panel on a Data Analyst posting: both resumes, PDF first, and you can switch.
+  const page = await context.newPage()
+  await page.goto('https://boards.greenhouse.io/globex/jobs/4012345')
+  await page.waitForTimeout(1000)
+  const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://boards.greenhouse.io/*' }))[0].id)
+  const panel = await context.newPage()
+  await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
+  const rows = panel.getByTestId('resume-ranking').locator('li button')
+  await expect(rows).toHaveCount(2, { timeout: 15_000 })
+  await expect(rows.first()).toContainText('resume.pdf')
+  await expect(rows.first()).toHaveAttribute('aria-pressed', 'true')
+  await expect(rows.nth(1)).toContainText(/missing .*(SQL|Python|Tableau)/)
+  await rows.nth(1).click()
+  await expect(rows.nth(1)).toHaveAttribute('aria-pressed', 'true')
+  await panel.close()
+  await page.close()
+
+  // LinkedIn pills name the best resume and list the others on hover.
+  const li = await context.newPage()
+  await li.goto('https://www.linkedin.com/jobs/search/?currentJobId=111')
+  const pillEl = li.locator('.jobs-search__job-details--container [data-zipply-pill="111"]')
+  await expect(pillEl).toHaveText(/^\d+ · (Apply|Maybe|Skip) · resume\.pdf$/, { timeout: 10_000 })
+  await expect(pillEl.locator('span')).toHaveAttribute('title', /Best resume: resume\.pdf \(\d+\)\nOthers: Frontend \d+/)
+  await li.close()
+})
+
 test('No console errors on extension pages', () => {
   expect(errors.filter((e) => !/favicon|ERR_FILE_NOT_FOUND/.test(e))).toEqual([])
 })

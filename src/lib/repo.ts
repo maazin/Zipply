@@ -73,7 +73,7 @@ export async function setGeminiKey(apiKey: string): Promise<void> {
 
 // ---------- Resumes ----------
 
-export const MAX_RESUMES = 5
+export const MAX_RESUMES = 10
 
 export async function listResumes(): Promise<ResumeMeta[]> {
   const rows = await db.resumes.orderBy('addedAt').toArray()
