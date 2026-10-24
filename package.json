@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "zip": "npm run build && cd dist && zip -qr ../zipply.zip .",
-    "test:e2e": "npm run build && playwright test"
+    "test:e2e": "npm run build && playwright test",
+    "screenshots": "npm run build && SHOTS=1 playwright test e2e/screenshots.spec.ts"
   },
   "dependencies": {
     "@google/genai": "2.27.0",
