@@ -114,8 +114,13 @@ let syncing = false
  * Bump when the rules change in a way that should revisit emails already seen.
  * 2: dates read from the sheet as numbers hid every application, so emails
  *    were marked done without a match; more ATS senders and phrases.
+ * 3: a title of "Apply" matched every "applying" email and tied with the real
+ *    company; repeat rows for one job; sender names; German, French, Spanish
+ *    and Dutch phrases; a grace period for late-logged applications.
  */
-export const RULES_VERSION = 2
+export const RULES_VERSION = 3
+/** An email can arrive a few days before the row's date (logged late, time zones). */
+const GRACE_DAYS = 3
 
 export async function syncGmail(): Promise<SyncResult> {
   const settings = await getSettings()
@@ -157,8 +162,9 @@ export async function syncGmail(): Promise<SyncResult> {
       const date = todayISO(new Date(Number(m.internalDate)))
       // Only applications in the search window, and only ones that existed when
       // the email was sent: an old rejection must not close a new application.
-      const open = (await applied()).filter((a) => (!a.dateApplied || a.dateApplied >= cutoff) && (!a.dateApplied || a.dateApplied <= date))
-      const { entry, candidates } = matchApplication(email, open)
+      const latest = todayISO(new Date(Number(m.internalDate) + GRACE_DAYS * 86_400_000))
+      const open = (await applied()).filter((a) => (!a.dateApplied || a.dateApplied >= cutoff) && (!a.dateApplied || a.dateApplied <= latest))
+      const { entry, candidates, also = [] } = matchApplication(email, open)
       let status = classifyEmail(email.subject, email.body)
 
       if (!entry) {
@@ -175,6 +181,8 @@ export async function syncGmail(): Promise<SyncResult> {
           const t = nextStatus(entry.status, status)
           if (t.kind === 'apply') {
             await applyStatus(entry, t.to, date, `From "${email.subject}"`)
+            // The same job logged twice moves together.
+            for (const twin of also) if (nextStatus(twin.status, status).kind === 'apply') await applyStatus(twin, t.to, date, `From "${email.subject}"`)
             changed++
           } else if (t.kind === 'offer') {
             await applyStatus(entry, 'Offer', date, 'Offer received. Your decision; nothing was done.', 'offer')

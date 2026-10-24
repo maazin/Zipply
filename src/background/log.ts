@@ -75,7 +75,8 @@ export async function logJob(job: JobContext): Promise<LogResult> {
   const dup = await isDuplicate(job.posting)
   if (dup) return { ok: true, duplicate: true, appId: dup.appId }
 
-  const rec = recordFrom(job)
+  // Logged later (from "Since last time"): the application date is when you filled it.
+  const rec = recordFrom(job, job.filledAt && Date.now() - job.filledAt < 30 * 86_400_000 ? new Date(job.filledAt) : new Date())
   const entry = entryFromRecord(rec)
   // Record locally first, so the already-applied check works even offline.
   await db.applied.put(entry)

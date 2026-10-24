@@ -5,7 +5,7 @@
  * batch the user approves, with conflicts and offers routed to manual review.
  */
 import type { AppStatus, AppliedEntry } from '@/shared/types'
-import { findBadWord, normalizeCompany } from '@/shared/text'
+import { findBadWord, keywordInText, normalizeCompany } from '@/shared/text'
 
 export const STATUS_ORDER: AppStatus[] = ['Applied', 'Received', 'Assessment', 'Interview', 'Offer']
 
@@ -27,6 +27,13 @@ export const PHRASES: { status: AppStatus; phrases: string[] }[] = [
       'not a fit at this time',
       'regret to inform',
       'unfortunately, we',
+      // German, French, Spanish, Dutch.
+      'leider müssen wir',
+      'leider können wir',
+      'nicht weiter berücksichtigen',
+      'nous ne pouvons pas donner suite',
+      'lamentablemente',
+      'helaas moeten wij',
     ],
   },
   { status: 'Offer', phrases: ['pleased to offer', 'extend an offer', 'offer letter', 'excited to offer', 'formal offer'] },
@@ -72,6 +79,15 @@ export const PHRASES: { status: AppStatus; phrases: string[] }[] = [
       'reviewing your application',
       'review your application',
       'application has been submitted',
+      'vielen dank für deine bewerbung',
+      'vielen dank für ihre bewerbung',
+      'danke für deine bewerbung',
+      'eingangsbestätigung',
+      'merci pour votre candidature',
+      'nous avons bien reçu votre candidature',
+      'gracias por tu candidatura',
+      'gracias por postularte',
+      'bedankt voor je sollicitatie',
     ],
   },
 ]
@@ -105,7 +121,17 @@ export const ATS_SENDER_DOMAINS = [
   'taleo.net',
   'successfactors.com',
   'successfactors.eu',
+  'recruitee-mail.com',
 ]
+
+/** Titles saved from a page that only said "Apply": they name no job, so they never match. */
+const GENERIC_TITLE = /^(apply|apply now|application|job application|careers?|jobs?|job|position|role|opening|untitled)$/i
+
+/** The job title as whole words in the email ("apply" is not in "applying"). */
+function titleIn(title: string, text: string): boolean {
+  const t = title.trim()
+  return t.length >= 4 && !GENERIC_TITLE.test(t) && keywordInText(t, text)
+}
 
 const GENERIC_LABELS = /^(no-?reply|do-?not-?reply|notifications?|mail|email|hire|jobs|careers|recruiting|talent|us|eu|uk|ca|au|app|www|info|hello)$/
 
@@ -122,8 +148,10 @@ function atsCompany(from: string): string {
   if (!ats) return ''
   const sub = domain === ats ? '' : domain.slice(0, -ats.length - 1).split('.')[0]
   if (sub && !GENERIC_LABELS.test(sub)) return normalizeCompany(sub.replace(/-/g, ' '))
-  if (/myworkday/.test(ats) && !GENERIC_LABELS.test(local)) return normalizeCompany(local.replace(/[._-]+/g, ' '))
-  return ''
+  // The sender name: "chewy@myworkday.com", "epeconsulting+autoreply@talent.icims.com",
+  // "job.kcm8v.fpsouc.kbmarketinggmbh1@recruitee-mail.com".
+  const name = local.split('+')[0].split('.').pop()!.replace(/\d+$/, '')
+  return name.length >= 3 && !GENERIC_LABELS.test(name) ? normalizeCompany(name.replace(/[_-]+/g, ' ')) : ''
 }
 
 /**
@@ -191,7 +219,7 @@ export interface EmailParts {
  * name, and job title or ID in the subject or body. Ambiguous or absent → null
  * (never fabricate a match).
  */
-export function matchApplication(email: EmailParts, open: AppliedEntry[]): { entry: AppliedEntry | null; candidates: AppliedEntry[] } {
+export function matchApplication(email: EmailParts, open: AppliedEntry[]): { entry: AppliedEntry | null; candidates: AppliedEntry[]; also?: AppliedEntry[] } {
   const domainCo = domainCompany(senderDomain(email.from)) || atsCompany(email.from)
   const display = normalizeCompany(email.from.replace(/<.*>/, ''))
   const text = `${email.subject}\n${email.body}`.toLowerCase()
@@ -201,19 +229,25 @@ export function matchApplication(email: EmailParts, open: AppliedEntry[]): { ent
       const co = e.companyNorm
       if (!co) return { e, s }
       const squash = (x: string) => x.replace(/ /g, '')
-      if (domainCo && (domainCo === co || squash(domainCo) === squash(co))) s += 3
+      if (domainCo && (domainCo === co || squash(domainCo) === squash(co) || (squash(co).length >= 4 && squash(domainCo).startsWith(squash(co))))) s += 3
       if (display && (display.includes(co) || co.includes(display))) s += 2
       if (new RegExp(`(^|[^a-z0-9])${co.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`).test(text)) s += 2
       // "Scaleai" in the sheet, "Scale AI" in the email.
       else if (squash(co).length >= 5 && squash(text.replace(/[^a-z0-9]+/g, ' ')).includes(squash(co))) s += 2
       if (e.jobId && text.includes(e.jobId.toLowerCase())) s += 3
-      if (e.title && text.includes(e.title.toLowerCase())) s += 2
+      if (titleIn(e.title, text)) s += 2
       return { e, s }
     })
     .filter((x) => x.s >= 2)
     .sort((a, b) => b.s - a.s)
   if (!scored.length) return { entry: null, candidates: [] }
-  if (scored.length > 1 && scored[0].s === scored[1].s) return { entry: null, candidates: scored.map((x) => x.e) }
+  const top = scored.filter((x) => x.s === scored[0].s).map((x) => x.e)
+  if (top.length > 1) {
+    // The same job applied to twice (two rows, same company and title): the email is about both.
+    const same = (a: AppliedEntry) => `${a.companyNorm}|${a.title.trim().toLowerCase()}`
+    if (top.every((e) => same(e) === same(top[0]))) return { entry: top[0], candidates: top, also: top.slice(1) }
+    return { entry: null, candidates: scored.map((x) => x.e) }
+  }
   return { entry: scored[0].e, candidates: [scored[0].e] }
 }
 

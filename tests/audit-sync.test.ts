@@ -157,8 +157,45 @@ describe('Gmail sync', () => {
     for (const k of ['Flatpay ApS ', 'Scaleai', 'Infor Careers', 'TP ICAP']) expect((await db.applied.get(k))!.status, k).toBe('Received')
   })
 
+  it('a saved title of "Apply" no longer ties with the real company', async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.bulkPut([
+      real('Infor Careers', 'Apply', { dateApplied: '2026-10-22' }),
+      real('Scaleai', 'Software Engineer', { dateApplied: '2026-10-22' }),
+      real('Cleoindia', 'SDET', { dateApplied: '2026-10-22' }),
+      real('Epeconsulting', 'Business Analyst', { dateApplied: '2026-10-22' }),
+    ])
+    mail.sc = { from: 'no-reply@us.greenhouse-mail.io', subject: 'Thank you for applying to Scale AI', body: 'Maazin, Thanks for applying to Scale AI. Your application has been received and we will review it right away.', date: '2026-10-22' }
+    mail.cl = { from: 'no-reply@us.greenhouse-mail.io', subject: 'Thank you for applying to Cleo (India)', body: 'Maazin, Thanks for applying to Cleo (India) . Your application has been received.', date: '2026-10-22' }
+    mail.ep = { from: 'epeconsulting+autoreply@talent.icims.com', subject: 'Thank you for applying at Electric Power Engineers', body: 'Thank you for your recent application to the Business Analyst position. To apply for other roles, visit our site.', date: '2026-10-22' }
+    await syncGmail()
+    for (const k of ['Scaleai', 'Cleoindia', 'Epeconsulting']) expect((await db.applied.get(k))!.status, k).toBe('Received')
+    expect((await db.applied.get('Infor Careers'))!.status).toBe('Applied')
+  })
+
+  it('moves both rows when the same job was logged twice, and reads German acknowledgments', async () => {
+    await updateSettings({ gmailEnabled: true })
+    const title = 'Softwareentwickler (m/w/d) für KI & Automatisierung - in Essen'
+    await db.applied.bulkPut([
+      real('KB Marketing GmbH', title, { key: 'kb1', appId: 'kb1', jobId: '2791783', dateApplied: '2026-10-22' }),
+      real('KB Marketing GmbH', title, { key: 'kb2', appId: 'kb2', jobId: '2791785', dateApplied: '2026-10-22' }),
+    ])
+    mail.kb = { from: 'job.kcm8v.fpsouc.kbmarketinggmbh1@recruitee-mail.com', subject: 'Eingangsbestätigung deiner Bewerbung bei der KB Marketing GmbH', body: 'Vielen Dank für deine Bewerbung! Um deine Bewerbung vollständig abzuschließen, tue bitte folgendes.', date: '2026-10-22' }
+    await syncGmail()
+    expect((await db.applied.get('kb1'))!.status).toBe('Received')
+    expect((await db.applied.get('kb2'))!.status).toBe('Received')
+  })
+
+  it('accepts an acknowledgment from a day or two before an application logged late', async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.put(real('Affirm', 'Software Engineer I, Fullstack (Search)', { dateApplied: '2026-10-22' }))
+    mail.af = { from: 'no-reply@us.greenhouse-mail.io', subject: 'We’ve received your application for Software Engineer I, Fullstack (Search) at Affirm', body: 'Hi Maazin, Thank you for applying for the Software Engineer I, Fullstack (Search) position at Affirm!', date: '2026-10-20' }
+    await syncGmail()
+    expect((await db.applied.get('Affirm'))!.status).toBe('Received')
+  })
+
   it("stops at Gmail's rate limit, keeps its progress and finishes on the retry", async () => {
-    await updateSettings({ gmailEnabled: true, gmailRulesVersion: 1 })
+    await updateSettings({ gmailEnabled: true, gmailRulesVersion: 2 })
     await db.applied.bulkPut([real('Wayve', 'Software Engineer', { dateApplied: '2026-10-22' }), real('Mujin', 'Software Engineer', { dateApplied: '2026-10-22' })])
     // Listed newest first; processed oldest first (mu, then wa).
     mail.wa = { from: 'no-reply@ashbyhq.com', subject: 'Wayve | Thanks for Applying!', body: 'Thank you for applying to Wayve!', date: '2026-10-22' }
@@ -178,7 +215,7 @@ describe('Gmail sync', () => {
   })
 
   it('looks again at emails an older version marked as done without a match', async () => {
-    await updateSettings({ gmailEnabled: true, gmailRulesVersion: 1 })
+    await updateSettings({ gmailEnabled: true, gmailRulesVersion: 2 })
     await db.applied.put(real('Wayve', 'Software Engineer', { dateApplied: '2026-10-22' }))
     mail.w = { from: 'no-reply@ashbyhq.com', subject: 'Wayve | Thanks for Applying!', body: 'Hi Maazin, Thank you for applying to Wayve!', date: '2026-10-22' }
     await db.emails.put({ id: 'w', at: Date.now() })
