@@ -1,5 +1,5 @@
 import type { AppliedEntry, AppStatus, JobRecord } from '@/shared/types'
-import { APPS, COLUMNS, DASH, LAST_COL, dashboardData, dashboardRequests, entryFromRecord, parseRows, toRow, COL } from '@/core/sheets/layout'
+import { APPS, COLUMNS, DASH, LAST_COL, appsDateFormats, dashboardData, dashboardRequests, entryFromRecord, parseRows, toRow, COL } from '@/core/sheets/layout'
 import { db } from '@/lib/db'
 import { getSettings, updateSettings } from '@/lib/repo'
 import { local, synced } from '@/lib/store'
@@ -26,7 +26,23 @@ async function setupSheet(id: string): Promise<void> {
     method: 'POST',
     body: JSON.stringify({ requests: dashboardRequests(appsId, dashId) }),
   })
-  await updateSettings({ sheetReady: true })
+  await updateSettings({ sheetReady: true, sheetFormatVersion: SHEET_FORMAT })
+}
+
+/** Bump when a sheet created earlier needs a formatting fix (see repairFormats). */
+const SHEET_FORMAT = 1
+
+/**
+ * Rows added before the fix were inserted under the header and lost the date
+ * format, so dates showed as numbers like 46317. Re-apply it once.
+ */
+async function repairFormats(id: string): Promise<void> {
+  if ((await getSettings()).sheetFormatVersion >= SHEET_FORMAT) return
+  const meta = await gfetch<{ sheets: { properties: { sheetId: number; title: string } }[] }>(`${BASE}/${id}?fields=sheets.properties(sheetId,title)`, S)
+  const appsId = meta.sheets.find((s) => s.properties.title === APPS)?.properties.sheetId
+  if (appsId == null) return
+  await gfetch(`${BASE}/${id}:batchUpdate`, S, { method: 'POST', body: JSON.stringify({ requests: appsDateFormats(appsId) }) })
+  await updateSettings({ sheetFormatVersion: SHEET_FORMAT })
 }
 
 // ---------- One sheet, ever ----------
@@ -179,6 +195,7 @@ async function finish(id: string, ready: boolean): Promise<string> {
 
 export async function readApplied(): Promise<AppliedEntry[]> {
   const id = await ensureSheet()
+  await repairFormats(id).catch(() => undefined)
   const res = await gfetch<{ values?: string[][] }>(
     `${BASE}/${id}/values/${encodeURIComponent(`${APPS}!A2:${LAST_COL}`)}?valueRenderOption=FORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`,
     S,
@@ -204,7 +221,9 @@ export async function refreshApplied(): Promise<AppliedEntry[]> {
 export async function appendRecord(r: JobRecord): Promise<number | undefined> {
   const id = await ensureSheet({ create: true })
   const res = await gfetch<{ updates?: { updatedRange?: string } }>(
-    `${BASE}/${id}/values/${encodeURIComponent(`${APPS}!A1:${LAST_COL}1`)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    // OVERWRITE fills the next empty row, which keeps the column's date format;
+    // INSERT_ROWS added a fresh row that copied the header's plain format.
+    `${BASE}/${id}/values/${encodeURIComponent(`${APPS}!A1:${LAST_COL}1`)}:append?valueInputOption=USER_ENTERED&insertDataOption=OVERWRITE`,
     S,
     { method: 'POST', body: JSON.stringify({ values: [toRow(r)] }) },
   )

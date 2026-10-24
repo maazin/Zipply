@@ -62,6 +62,32 @@ describe('buildQuery', () => {
     const q = buildQuery(['Globex', 'Initech'])
     expect(q).toMatch(/^newer_than:30d -in:sent -in:drafts/)
     expect(q).toContain('from:greenhouse.io')
-    expect(q).toContain('"Globex"')
+    expect(q).toContain('"globex"')
   })
 })
+
+describe('reading the sheet and searching Gmail', () => {
+  it('turns sheet serial numbers and US dates into ISO dates', async () => {
+    const { toISODate } = await import('@/shared/text')
+    expect(toISODate('46317')).toBe('2026-10-22')
+    expect(toISODate('46314')).toBe('2026-10-19')
+    expect(toISODate('10/22/2026')).toBe('2026-10-22')
+    expect(toISODate('2026-10-22')).toBe('2026-10-22')
+    expect(toISODate('')).toBe('')
+  })
+
+  it('searches for the bare company name and the newer ATS senders', () => {
+    const q = buildQuery(['Flatpay ApS ', 'Infor Careers', 'KB Marketing GmbH'])
+    expect(q).toContain('"flatpay"')
+    expect(q).toContain('"infor"')
+    expect(q).toContain('"kb marketing"')
+    expect(q).toContain('from:teamtailor-mail.com')
+    expect(q).toContain('from:pinpoint.email')
+  })
+
+  it('reads common acknowledgment wording as Received', () => {
+    expect(classifyEmail('Maazin x Alan', 'Thank you for showing interest in joining Alan, our team will make sure to review your application.')).toBe('Received')
+    expect(classifyEmail('Thank you for your application to Mujin', 'We have successfully received your application, and our team is reviewing your background.')).toBe('Received')
+  })
+})
+

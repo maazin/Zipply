@@ -347,6 +347,10 @@ export interface Settings {
   googleEmail: string
   gmailEnabled: boolean
   lastGmailSync: number
+  /** Gmail rules version the processed-email list was built with; older lists are rescanned. */
+  gmailRulesVersion: number
+  /** Formatting fixes applied to the sheet (see repairFormats). */
+  sheetFormatVersion: number
   encrypted: boolean
 }
 

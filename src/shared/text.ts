@@ -136,6 +136,9 @@ export function findBadWord(text: string, words: string[]): string | null {
 const COMPANY_SUFFIXES = [
   'incorporated', 'inc', 'llc', 'l l c', 'ltd', 'limited', 'corp', 'corporation', 'co', 'company', 'plc', 'gmbh',
   'ag', 'sa', 'a/s', 'group', 'holdings', 'lp', 'llp', 'pllc',
+  // Other legal forms, and words job sites add to a company's name ("Infor Careers").
+  'aps', 'ab', 'as', 'bv', 'nv', 'oy', 'srl', 'sas', 'sarl', 'pty', 'pvt', 'kg', 'se',
+  'careers', 'jobs', 'recruiting', 'recruitment', 'hiring', 'talent',
 ]
 
 /** "Acme, Inc." and "ACME Corp" both become "acme". */
@@ -161,6 +164,24 @@ export function normalizeCompany(s: string): string {
 
 export function wordCount(s: string): number {
   return (s.match(/\S+/g) ?? []).length
+}
+
+/**
+ * A date cell from the sheet as YYYY-MM-DD. Sheets can hand back a serial
+ * number (46317) when the cell isn't formatted as a date, or a locale date
+ * (10/22/2026). Anything else is returned unchanged.
+ */
+export function toISODate(v: string): string {
+  const s = v.trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
+  if (/^\d{4,6}(\.\d+)?$/.test(s)) {
+    // Days since 1899-12-30, Sheets' (and Excel's) day zero.
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(s)) * 86_400_000)
+    return d.toISOString().slice(0, 10)
+  }
+  const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (us) return `${us[3]}-${us[1].padStart(2, '0')}-${us[2].padStart(2, '0')}`
+  return s
 }
 
 export function todayISO(d = new Date()): string {

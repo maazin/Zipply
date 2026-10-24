@@ -62,6 +62,16 @@ export const PHRASES: { status: AppStatus; phrases: string[] }[] = [
       'we got your application',
       'application received',
       'thank you for your interest',
+      'thanks for your interest',
+      'thank you for showing interest',
+      'thank you for your application',
+      'thanks for your application',
+      'we have received your',
+      "we've received your",
+      'successfully received',
+      'reviewing your application',
+      'review your application',
+      'application has been submitted',
     ],
   },
 ]
@@ -80,7 +90,41 @@ export const ATS_SENDER_DOMAINS = [
   'bamboohr.com',
   'jobvite.com',
   'workablemail.com',
+  'workable.com',
+  'teamtailor-mail.com',
+  'teamtailor.com',
+  'pinpoint.email',
+  'pinpointhq.com',
+  'recruitee.com',
+  'personio.de',
+  'personio.com',
+  'breezy.hr',
+  'applytojob.com',
+  'jazz.co',
+  'rippling.com',
+  'taleo.net',
+  'successfactors.com',
+  'successfactors.eu',
 ]
+
+const GENERIC_LABELS = /^(no-?reply|do-?not-?reply|notifications?|mail|email|hire|jobs|careers|recruiting|talent|us|eu|uk|ca|au|app|www|info|hello)$/
+
+/**
+ * The company an ATS email names in its address: "flatpay.teamtailor-mail.com"
+ * (a subdomain) or "chewy@myworkday.com" (Workday's sender name).
+ */
+function atsCompany(from: string): string {
+  const m = from.match(/([\w.+-]+)@([\w.-]+)/)
+  if (!m) return ''
+  const local = m[1].toLowerCase()
+  const domain = m[2].toLowerCase()
+  const ats = ATS_SENDER_DOMAINS.find((d) => domain === d || domain.endsWith('.' + d))
+  if (!ats) return ''
+  const sub = domain === ats ? '' : domain.slice(0, -ats.length - 1).split('.')[0]
+  if (sub && !GENERIC_LABELS.test(sub)) return normalizeCompany(sub.replace(/-/g, ' '))
+  if (/myworkday/.test(ats) && !GENERIC_LABELS.test(local)) return normalizeCompany(local.replace(/[._-]+/g, ' '))
+  return ''
+}
 
 /**
  * Classify by the signal phrase in the subject or the first lines of the body
@@ -148,7 +192,7 @@ export interface EmailParts {
  * (never fabricate a match).
  */
 export function matchApplication(email: EmailParts, open: AppliedEntry[]): { entry: AppliedEntry | null; candidates: AppliedEntry[] } {
-  const domainCo = domainCompany(senderDomain(email.from))
+  const domainCo = domainCompany(senderDomain(email.from)) || atsCompany(email.from)
   const display = normalizeCompany(email.from.replace(/<.*>/, ''))
   const text = `${email.subject}\n${email.body}`.toLowerCase()
   const scored = open
@@ -160,6 +204,8 @@ export function matchApplication(email: EmailParts, open: AppliedEntry[]): { ent
       if (domainCo && (domainCo === co || squash(domainCo) === squash(co))) s += 3
       if (display && (display.includes(co) || co.includes(display))) s += 2
       if (new RegExp(`(^|[^a-z0-9])${co.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`).test(text)) s += 2
+      // "Scaleai" in the sheet, "Scale AI" in the email.
+      else if (squash(co).length >= 5 && squash(text.replace(/[^a-z0-9]+/g, ' ')).includes(squash(co))) s += 2
       if (e.jobId && text.includes(e.jobId.toLowerCase())) s += 3
       if (e.title && text.includes(e.title.toLowerCase())) s += 2
       return { e, s }
@@ -173,7 +219,8 @@ export function matchApplication(email: EmailParts, open: AppliedEntry[]): { ent
 
 /** Gmail search query for the last 30 days (from gmail-sync.md step 3). */
 export function buildQuery(companies: string[], days = 30): string {
-  const names = [...new Set(companies.filter(Boolean))].slice(0, 40).map((c) => `"${c.replace(/"/g, '')}"`)
+  // The bare name ("Flatpay", not "Flatpay ApS"), which is how emails write it.
+  const names = [...new Set(companies.map(normalizeCompany).filter((c) => c.length >= 2))].slice(0, 40).map((c) => `"${c}"`)
   const senders = ATS_SENDER_DOMAINS.map((d) => `from:${d}`).join(' ')
   const groups = [`{${senders}}`]
   if (names.length) groups.push(`{${names.join(' ')}}`)

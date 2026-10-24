@@ -6,7 +6,7 @@
  * gmail-sync (MIT).
  */
 import type { AppliedEntry, AppStatus, JobRecord } from '@/shared/types'
-import { normalizeCompany } from '@/shared/text'
+import { normalizeCompany, toISODate } from '@/shared/text'
 import { appliedKey } from '../score/applied'
 
 export const APPS = 'Applications'
@@ -94,10 +94,11 @@ export function parseRows(values: string[][], firstRow = 2): AppliedEntry[] {
       title,
       jobId,
       url,
-      dateApplied,
+      // Dates may come back as serial numbers if the cells lost their date format.
+      dateApplied: toISODate(dateApplied),
       status: (STATUSES.includes(status as AppStatus) ? status : 'Applied') as AppStatus,
-      firstReply,
-      lastStatusChange,
+      firstReply: toISODate(firstReply),
+      lastStatusChange: toISODate(lastStatusChange),
       row: firstRow + i,
     })
   })
@@ -188,6 +189,18 @@ export function dashboardData(): { range: string; values: (string | number)[][] 
   ]
 }
 
+/** Date format for Date applied, First reply and Last status change, down the whole column. */
+export function appsDateFormats(appsSheetId: number): object[] {
+  const col = (c0: number, c1: number) => ({
+    repeatCell: {
+      range: { sheetId: appsSheetId, startRowIndex: 1, startColumnIndex: c0, endColumnIndex: c1 },
+      cell: { userEnteredFormat: { numberFormat: { type: 'DATE', pattern: 'yyyy-mm-dd' } } },
+      fields: 'userEnteredFormat.numberFormat',
+    },
+  })
+  return [col(1, 2), col(13, 15)]
+}
+
 /** Formatting, the weekly chart and the calendar heat map (Sheets batchUpdate requests). */
 export function dashboardRequests(appsSheetId: number, dashSheetId: number): object[] {
   const grid = (sheetId: number, r0: number, r1: number, c0: number, c1: number) => ({
@@ -205,8 +218,7 @@ export function dashboardRequests(appsSheetId: number, dashSheetId: number): obj
   })
   return [
     bold(grid(appsSheetId, 0, 1, 0, COLUMNS.length)),
-    fmt(grid(appsSheetId, 1, 5000, 1, 2), { type: 'DATE', pattern: 'yyyy-mm-dd' }),
-    fmt(grid(appsSheetId, 1, 5000, 13, 15), { type: 'DATE', pattern: 'yyyy-mm-dd' }),
+    ...appsDateFormats(appsSheetId),
     {
       setDataValidation: {
         range: grid(appsSheetId, 1, 5000, 12, 13),

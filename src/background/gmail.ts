@@ -4,12 +4,12 @@
 // read in memory only; just the resulting status and date are kept.
 import type { AppliedEntry, AppStatus, StatusEvent } from '@/shared/types'
 import { uid } from '@/shared/defaults'
-import { todayISO } from '@/shared/text'
+import { todayISO, toISODate } from '@/shared/text'
 import { buildQuery, classifyEmail, matchApplication, nextStatus } from '@/core/gmail/rules'
 import { db } from '@/lib/db'
 import { getSettings, updateSettings } from '@/lib/repo'
 import { gfetch, SCOPES } from './google'
-import { writeStatus } from './sheets'
+import { refreshApplied, writeStatus } from './sheets'
 import { enqueue } from './queue'
 import { classifyEmailAi } from './ai/tasks'
 import { offscreen } from './ai/router'
@@ -99,14 +99,27 @@ export interface SyncResult {
 
 let syncing = false
 
+/**
+ * Bump when the rules change in a way that should revisit emails already seen.
+ * 2: dates read from the sheet as numbers hid every application, so emails
+ *    were marked done without a match; more ATS senders and phrases.
+ */
+export const RULES_VERSION = 2
+
 export async function syncGmail(): Promise<SyncResult> {
   const settings = await getSettings()
   if (!settings.gmailEnabled || syncing) return { scanned: 0, changed: 0, unmatched: 0 }
   syncing = true
   try {
+    // Start from the sheet as it is now (and with dates read as dates).
+    await refreshApplied().catch(() => undefined)
     const cutoff = new Date(Date.now() - 120 * 86_400_000).toISOString().slice(0, 10)
-    const apps = (await db.applied.toArray()).filter((a) => !a.dateApplied || a.dateApplied >= cutoff)
+    const applied = async () => (await db.applied.toArray()).map((a) => ({ ...a, dateApplied: toISODate(a.dateApplied) }))
+    const apps = (await applied()).filter((a) => !a.dateApplied || a.dateApplied >= cutoff)
     if (!apps.length) return { scanned: 0, changed: 0, unmatched: 0 }
+    // Rules changed since these emails were looked at: look again.
+    const rescan = (settings.gmailRulesVersion ?? 0) < RULES_VERSION
+    if (rescan) await Promise.all([db.emails.clear(), db.unmatched.clear()])
 
     const ids = await listIds(buildQuery(apps.map((a) => a.company)))
     const seen = new Set((await db.emails.bulkGet(ids)).filter(Boolean).map((r) => r!.id))
@@ -120,7 +133,7 @@ export async function syncGmail(): Promise<SyncResult> {
       const date = todayISO(new Date(Number(m.internalDate)))
       // Only applications in the search window, and only ones that existed when
       // the email was sent: an old rejection must not close a new application.
-      const open = (await db.applied.toArray()).filter((a) => (!a.dateApplied || a.dateApplied >= cutoff) && (!a.dateApplied || a.dateApplied <= date))
+      const open = (await applied()).filter((a) => (!a.dateApplied || a.dateApplied >= cutoff) && (!a.dateApplied || a.dateApplied <= date))
       const { entry, candidates } = matchApplication(email, open)
       let status = classifyEmail(email.subject, email.body)
 
@@ -154,7 +167,7 @@ export async function syncGmail(): Promise<SyncResult> {
       }
       await db.emails.put({ id, at: Date.now() })
     }
-    await updateSettings({ lastGmailSync: Date.now() })
+    await updateSettings({ lastGmailSync: Date.now(), gmailRulesVersion: RULES_VERSION })
     return { scanned: fresh.length, changed, unmatched }
   } finally {
     syncing = false
