@@ -173,6 +173,14 @@ describe('Gmail sync', () => {
     expect((await db.applied.get('Infor Careers'))!.status).toBe('Applied')
   })
 
+  it("never matches on a role title alone (another company's rejection)", async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.put(real('Axle Energy', 'Software Engineer', { dateApplied: '2026-10-22', status: 'Received' }))
+    mail.z = { from: 'JD <jd@zanskar.us>', subject: 'Maazin - Thank you for your interest', body: 'Thank you sincerely for your interest in the Full-Stack Software Engineer, Platform Data role at Zanskar. Unfortunately, we have decided to move forward with other candidates.', date: '2026-10-23' }
+    await syncGmail()
+    expect((await db.applied.get('Axle Energy'))!.status).toBe('Received')
+  })
+
   it('moves both rows when the same job was logged twice, and reads German acknowledgments', async () => {
     await updateSettings({ gmailEnabled: true })
     const title = 'Softwareentwickler (m/w/d) für KI & Automatisierung - in Essen'
@@ -195,7 +203,7 @@ describe('Gmail sync', () => {
   })
 
   it("stops at Gmail's rate limit, keeps its progress and finishes on the retry", async () => {
-    await updateSettings({ gmailEnabled: true, gmailRulesVersion: 2 })
+    await updateSettings({ gmailEnabled: true, gmailRulesVersion: 3 })
     await db.applied.bulkPut([real('Wayve', 'Software Engineer', { dateApplied: '2026-10-22' }), real('Mujin', 'Software Engineer', { dateApplied: '2026-10-22' })])
     // Listed newest first; processed oldest first (mu, then wa).
     mail.wa = { from: 'no-reply@ashbyhq.com', subject: 'Wayve | Thanks for Applying!', body: 'Thank you for applying to Wayve!', date: '2026-10-22' }
@@ -215,7 +223,7 @@ describe('Gmail sync', () => {
   })
 
   it('looks again at emails an older version marked as done without a match', async () => {
-    await updateSettings({ gmailEnabled: true, gmailRulesVersion: 2 })
+    await updateSettings({ gmailEnabled: true, gmailRulesVersion: 3 })
     await db.applied.put(real('Wayve', 'Software Engineer', { dateApplied: '2026-10-22' }))
     mail.w = { from: 'no-reply@ashbyhq.com', subject: 'Wayve | Thanks for Applying!', body: 'Hi Maazin, Thank you for applying to Wayve!', date: '2026-10-22' }
     await db.emails.put({ id: 'w', at: Date.now() })

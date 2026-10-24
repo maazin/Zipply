@@ -117,8 +117,9 @@ let syncing = false
  * 3: a title of "Apply" matched every "applying" email and tied with the real
  *    company; repeat rows for one job; sender names; German, French, Spanish
  *    and Dutch phrases; a grace period for late-logged applications.
+ * 4: a match needs the company named in the email, not just the role title.
  */
-export const RULES_VERSION = 3
+export const RULES_VERSION = 4
 /** An email can arrive a few days before the row's date (logged late, time zones). */
 const GRACE_DAYS = 3
 

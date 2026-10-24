@@ -225,16 +225,20 @@ export function matchApplication(email: EmailParts, open: AppliedEntry[]): { ent
   const text = `${email.subject}\n${email.body}`.toLowerCase()
   const scored = open
     .map((e) => {
-      let s = 0
       const co = e.companyNorm
-      if (!co) return { e, s }
+      if (!co) return { e, s: 0 }
       const squash = (x: string) => x.replace(/ /g, '')
-      if (domainCo && (domainCo === co || squash(domainCo) === squash(co) || (squash(co).length >= 4 && squash(domainCo).startsWith(squash(co))))) s += 3
-      if (display && (display.includes(co) || co.includes(display))) s += 2
-      if (new RegExp(`(^|[^a-z0-9])${co.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`).test(text)) s += 2
+      // The email has to name the company somewhere: a role title alone ("Software
+      // Engineer") also appears in other companies' emails.
+      let company = 0
+      if (domainCo && (domainCo === co || squash(domainCo) === squash(co) || (squash(co).length >= 4 && squash(domainCo).startsWith(squash(co))))) company += 3
+      if (display.length >= 3 && (display.includes(co) || co.includes(display))) company += 2
+      if (new RegExp(`(^|[^a-z0-9])${co.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`).test(text)) company += 2
       // "Scaleai" in the sheet, "Scale AI" in the email.
-      else if (squash(co).length >= 5 && squash(text.replace(/[^a-z0-9]+/g, ' ')).includes(squash(co))) s += 2
-      if (e.jobId && text.includes(e.jobId.toLowerCase())) s += 3
+      else if (squash(co).length >= 5 && squash(text.replace(/[^a-z0-9]+/g, ' ')).includes(squash(co))) company += 2
+      if (!company) return { e, s: 0 }
+      let s = company
+      if (e.jobId.length >= 5 && keywordInText(e.jobId, text)) s += 3
       if (titleIn(e.title, text)) s += 2
       return { e, s }
     })
