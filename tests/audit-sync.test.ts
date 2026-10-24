@@ -4,7 +4,8 @@ import { installChrome, resetStores } from './chromeMock'
 import type { AppliedEntry, JobRecord } from '@/shared/types'
 import { normalizeCompany } from '@/shared/text'
 
-installChrome()
+const alarms: { name: string; info: unknown }[] = []
+installChrome({ alarms: { create: async (name: string, info: unknown) => void alarms.push({ name, info }) } })
 
 const sheet = { ids: new Set<string>(), appended: [] as string[], statuses: [] as unknown[], missing: new Set<string>() }
 
@@ -27,12 +28,22 @@ vi.mock('@/background/sheets', () => {
 })
 
 const mail: Record<string, { from: string; subject: string; body: string; date: string }> = {}
-vi.mock('@/background/google', () => ({
+/** Message IDs Gmail refuses with its per-minute rate limit. */
+const limited = new Set<string>()
+vi.mock('@/background/google', () => {
+  class HttpError extends Error {
+    constructor(public status: number, message: string) {
+      super(message)
+    }
+  }
+  return {
   SCOPES: { drive: 'd', gmail: 'g' },
   NotConnectedError: class extends Error {},
+  HttpError,
   gfetch: async (url: string) => {
     if (url.includes('/messages?')) return { messages: Object.keys(mail).map((id) => ({ id })) }
     const id = url.match(/messages\/([^?]+)/)![1]
+    if (limited.has(id)) throw new HttpError(403, "Google API 403: Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'")
     const m = mail[id]
     // UTF-8, like Gmail (emails can carry emoji).
     const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(m.body))).replace(/\+/g, '-').replace(/\//g, '_')
@@ -42,7 +53,8 @@ vi.mock('@/background/google', () => ({
       payload: { mimeType: 'text/plain', body: { data: b64 }, headers: [{ name: 'From', value: m.from }, { name: 'Subject', value: m.subject }] },
     }
   },
-}))
+  }
+})
 vi.mock('@/background/ai/tasks', () => ({ classifyEmailAi: async () => null }))
 vi.mock('@/background/ai/router', () => ({ offscreen: async () => ({}) }))
 
@@ -64,6 +76,8 @@ beforeEach(async () => {
   sheet.statuses = []
   sheet.missing.clear()
   for (const k of Object.keys(mail)) delete mail[k]
+  limited.clear()
+  alarms.length = 0
 })
 
 describe('retry queue', () => {
@@ -141,6 +155,26 @@ describe('Gmail sync', () => {
     mail.t = { from: 'tp@myworkday.com', subject: 'Thank you for applying!', body: 'Dear Maazin, Thank you for your interest in TP ICAP. We have received your application for the Engineer C# (Full Stack) role.', date: '2026-10-19' }
     await syncGmail()
     for (const k of ['Flatpay ApS ', 'Scaleai', 'Infor Careers', 'TP ICAP']) expect((await db.applied.get(k))!.status, k).toBe('Received')
+  })
+
+  it("stops at Gmail's rate limit, keeps its progress and finishes on the retry", async () => {
+    await updateSettings({ gmailEnabled: true, gmailRulesVersion: 1 })
+    await db.applied.bulkPut([real('Wayve', 'Software Engineer', { dateApplied: '2026-10-22' }), real('Mujin', 'Software Engineer', { dateApplied: '2026-10-22' })])
+    // Listed newest first; processed oldest first (mu, then wa).
+    mail.wa = { from: 'no-reply@ashbyhq.com', subject: 'Wayve | Thanks for Applying!', body: 'Thank you for applying to Wayve!', date: '2026-10-22' }
+    mail.mu = { from: 'no-reply@hire.lever.co', subject: 'Thank you for your application to Mujin', body: 'We have successfully received your application.', date: '2026-10-22' }
+    limited.add('wa')
+    const first = await syncGmail()
+    expect(first.limited).toBe(true)
+    expect((await db.applied.get('Mujin'))!.status).toBe('Received')
+    expect((await db.applied.get('Wayve'))!.status).toBe('Applied')
+    expect(alarms).toEqual([{ name: 'zipply-gmail', info: { delayInMinutes: 2, periodInMinutes: 120 } }])
+    // The retry: no rescan from scratch, just the rest.
+    limited.clear()
+    await db.applied.update('Mujin', { status: 'Applied' })
+    await syncGmail()
+    expect((await db.applied.get('Wayve'))!.status).toBe('Received')
+    expect((await db.applied.get('Mujin'))!.status).toBe('Applied')
   })
 
   it('looks again at emails an older version marked as done without a match', async () => {

@@ -8,7 +8,7 @@ import { todayISO, toISODate } from '@/shared/text'
 import { buildQuery, classifyEmail, matchApplication, nextStatus } from '@/core/gmail/rules'
 import { db } from '@/lib/db'
 import { getSettings, updateSettings } from '@/lib/repo'
-import { gfetch, SCOPES } from './google'
+import { gfetch, HttpError, SCOPES } from './google'
 import { refreshApplied, writeStatus } from './sheets'
 import { enqueue } from './queue'
 import { classifyEmailAi } from './ai/tasks'
@@ -95,6 +95,17 @@ export interface SyncResult {
   scanned: number
   changed: number
   unmatched: number
+  /** Stopped early at Gmail's rate limit; continues in a couple of minutes. */
+  limited?: boolean
+}
+
+/** Same name as the service worker's 2-hourly alarm, so a retry replaces it. */
+const GMAIL_ALARM = 'zipply-gmail'
+/** About 4 messages a second, well under Gmail's per-user limit. */
+const PACE_MS = 250
+
+function isRateLimit(e: unknown): boolean {
+  return e instanceof HttpError && (e.status === 429 || (e.status === 403 && /quota|rate limit|rateLimit/i.test(e.message)))
 }
 
 let syncing = false
@@ -118,8 +129,11 @@ export async function syncGmail(): Promise<SyncResult> {
     const apps = (await applied()).filter((a) => !a.dateApplied || a.dateApplied >= cutoff)
     if (!apps.length) return { scanned: 0, changed: 0, unmatched: 0 }
     // Rules changed since these emails were looked at: look again.
-    const rescan = (settings.gmailRulesVersion ?? 0) < RULES_VERSION
-    if (rescan) await Promise.all([db.emails.clear(), db.unmatched.clear()])
+    // Recorded right away, so a run cut short keeps its progress instead of starting over.
+    if ((settings.gmailRulesVersion ?? 0) < RULES_VERSION) {
+      await Promise.all([db.emails.clear(), db.unmatched.clear()])
+      await updateSettings({ gmailRulesVersion: RULES_VERSION })
+    }
 
     const ids = await listIds(buildQuery(apps.map((a) => a.company)))
     const seen = new Set((await db.emails.bulkGet(ids)).filter(Boolean).map((r) => r!.id))
@@ -128,7 +142,17 @@ export async function syncGmail(): Promise<SyncResult> {
     let unmatched = 0
 
     for (const id of fresh) {
-      const m = await gfetch<Message>(`${API}/messages/${id}?format=full`, S)
+      let m: Message
+      try {
+        m = await gfetch<Message>(`${API}/messages/${id}?format=full`, S)
+      } catch (e) {
+        // Gmail's per-minute limit: keep what's done and pick up again shortly.
+        if (!isRateLimit(e)) throw e
+        await chrome.alarms.create(GMAIL_ALARM, { delayInMinutes: 2, periodInMinutes: 120 })
+        return { scanned: fresh.indexOf(id), changed, unmatched, limited: true }
+      }
+      // A big backlog (the first sync, or a rescan) goes at a steady pace.
+      if (fresh.length > 20) await new Promise((r) => setTimeout(r, PACE_MS))
       const email = { from: header(m, 'From'), subject: header(m, 'Subject'), body: await bodyText(m) }
       const date = todayISO(new Date(Number(m.internalDate)))
       // Only applications in the search window, and only ones that existed when
@@ -167,7 +191,7 @@ export async function syncGmail(): Promise<SyncResult> {
       }
       await db.emails.put({ id, at: Date.now() })
     }
-    await updateSettings({ lastGmailSync: Date.now(), gmailRulesVersion: RULES_VERSION })
+    await updateSettings({ lastGmailSync: Date.now() })
     return { scanned: fresh.length, changed, unmatched }
   } finally {
     syncing = false
