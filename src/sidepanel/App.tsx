@@ -39,7 +39,18 @@ async function tabState(tabId: number) {
  */
 async function ensureInjected(tabId: number): Promise<number[] | null> {
   try {
-    const probe = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: () => Boolean((window as { __zipply?: boolean }).__zipply) })
+    // A copy left over from before Zipply reloaded is in the page but can't be reached: count only live ones.
+    const probe = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => {
+        const z = (window as { __zipply?: boolean | { alive: () => boolean } }).__zipply
+        try {
+          return typeof z === 'object' && z !== null && z.alive()
+        } catch {
+          return false
+        }
+      },
+    })
     const missing = probe.filter((r) => !r.result).map((r) => r.frameId)
     if (missing.length) {
       await chrome.scripting.executeScript({ target: { tabId, frameIds: missing }, files: [contentScript] })

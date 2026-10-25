@@ -19,6 +19,8 @@ import { diagnostics, healthChecks } from './health'
 import { runChecks } from '@/lib/checks'
 import { clearErrors, logError } from '@/lib/errlog'
 import { BUILD } from '@/shared/build'
+import { isExcluded } from '@/shared/excluded'
+import contentScript from '@/content/index.ts?script'
 import { reloadIfNewBuildOnDisk } from '@/lib/selfUpdate'
 
 const QUEUE_ALARM = 'zipply-queue'
@@ -36,6 +38,9 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   await chrome.alarms.create(GMAIL_ALARM, { periodInMinutes: 120, delayInMinutes: 1 })
   // Unpacked (developer) installs pick up a rebuild within a minute.
   if ((await chrome.management.getSelf()).installType === 'development') await chrome.alarms.create(BUILD_ALARM, { periodInMinutes: 1 })
+  // Chrome doesn't put an updated content script into tabs that were already
+  // open, and the old copy there can't reach the extension any more.
+  if (reason === 'install' || reason === 'update') await injectIntoOpenTabs()
   if (reason === 'install') await chrome.runtime.openOptionsPage()
 })
 
@@ -64,6 +69,16 @@ async function backgroundRefresh() {
   if (s.googleEmail || s.sheetId) await refreshApplied().catch((e) => {
       if (!(e instanceof NoSheetError)) return logError('refresh sheet', e)
     })
+}
+
+/** Put the content script into every open web tab (it skips tabs where a live copy runs). */
+async function injectIntoOpenTabs() {
+  const tabs = await chrome.tabs.query({ url: ['https://*/*', 'http://*/*'] })
+  await Promise.all(
+    tabs
+      .filter((t) => t.id != null && t.url && !t.discarded && !isExcluded(t.url))
+      .map((t) => chrome.scripting.executeScript({ target: { tabId: t.id!, allFrames: true }, files: [contentScript] }).catch(() => undefined)),
+  )
 }
 
 // ---------- Per-tab state ----------

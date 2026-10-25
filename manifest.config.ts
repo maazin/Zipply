@@ -1,18 +1,10 @@
 import { defineManifest } from '@crxjs/vite-plugin'
 import { loadEnv } from 'vite'
 import pkg from './package.json'
+import { EXCLUDED } from './src/shared/excluded'
 
 // Zipply runs on every site (it stays idle unless a page looks like an
-// application). These are skipped entirely.
-const EXCLUDED = [
-  'https://mail.google.com/*',
-  'https://docs.google.com/*',
-  'https://drive.google.com/*',
-  'https://calendar.google.com/*',
-  'https://meet.google.com/*',
-  'https://*.youtube.com/*',
-  'https://accounts.google.com/*',
-]
+// application), except those in EXCLUDED.
 
 // Network lock: extension pages and the service worker may only reach Google's
 // OAuth, Sheets, Gmail and Gemini endpoints.

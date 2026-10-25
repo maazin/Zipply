@@ -17,7 +17,31 @@ import { clearStale, decorateCards, listingPosting, pillFor, placePill, siteFor,
 
 declare global {
   interface Window {
-    __zipply?: boolean
+    /** Set by the running copy. `true` is from a build before the liveness check. */
+    __zipply?: boolean | { alive: () => boolean }
+  }
+}
+
+/**
+ * When Zipply reloads (an update), the copy already in a page stays but can no
+ * longer reach the extension. Only a copy that can is counted as running.
+ */
+function zipplyAlive(): boolean {
+  const z = window.__zipply
+  if (!z || z === true) return false
+  try {
+    return z.alive()
+  } catch {
+    return false
+  }
+}
+
+/** This copy lost its extension (Zipply reloaded): stop watching the page. */
+const orphaned = () => {
+  try {
+    return !chrome.runtime?.id
+  } catch {
+    return true
   }
 }
 
@@ -134,6 +158,7 @@ function main() {
   let timer: ReturnType<typeof setTimeout> | undefined
   let lastIdleCheck = 0
   const observer = new MutationObserver(() => {
+    if (orphaned()) return observer.disconnect()
     if (!active && !reported) {
       if (timer) return
       const wait = Math.max(0, 2000 - (Date.now() - lastIdleCheck))
@@ -239,13 +264,15 @@ function main() {
   }
   if (siteFor(new URL(location.href))) {
     let listingTimer: ReturnType<typeof setTimeout> | undefined
-    new MutationObserver(() => {
+    const listingObserver = new MutationObserver(() => {
+      if (orphaned()) return listingObserver.disconnect()
       if (listingTimer) return
       listingTimer = setTimeout(() => {
         listingTimer = undefined
         void tickListings()
       }, 800)
-    }).observe(document.documentElement, { childList: true, subtree: true })
+    })
+    listingObserver.observe(document.documentElement, { childList: true, subtree: true })
     void tickListings()
   }
 
@@ -270,7 +297,7 @@ function main() {
   }, 1200)
 }
 
-if (!window.__zipply) {
-  window.__zipply = true
+if (!zipplyAlive()) {
+  window.__zipply = { alive: () => !orphaned() }
   main()
 }

@@ -578,6 +578,24 @@ test('"Since last time" is one line until you open it', async () => {
   await page.close()
 })
 
+test('Fills a tab holding a dead copy from before Zipply reloaded', async () => {
+  // docs.google.com is excluded, so no content script loads there by itself:
+  // the page ends up like a tab after an update, marked but with no live copy.
+  await context.route('https://docs.google.com/forms/**', (r) => r.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'custom.html'), 'utf8') }))
+  const page = await context.newPage()
+  await page.goto('https://docs.google.com/forms/d/stale/viewform')
+  const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://docs.google.com/*' }))[0].id!)
+  // The marker an older build left behind.
+  await worker.evaluate((id) => chrome.scripting.executeScript({ target: { tabId: id }, func: () => void ((window as { __zipply?: unknown }).__zipply = true) }), tabId)
+
+  const panel = await context.newPage()
+  await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
+  await panel.getByRole('button', { name: 'Fill this page' }).click({ timeout: 15_000 })
+  await expect(page.locator('input[name="applicant_given"]')).toHaveValue('Ada', { timeout: 10_000 })
+  await panel.close()
+  await page.close()
+})
+
 test('No console errors on extension pages', () => {
   expect(errors.filter((e) => !/favicon|ERR_FILE_NOT_FOUND/.test(e))).toEqual([])
 })
