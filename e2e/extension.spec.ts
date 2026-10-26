@@ -596,6 +596,31 @@ test('Fills a tab holding a dead copy from before Zipply reloaded', async () => 
   await page.close()
 })
 
+test('The panel follows you through Handshake listings', async () => {
+  await context.route('https://app.joinhandshake.com/**', (r) => r.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'handshake.html'), 'utf8') }))
+  const page = await context.newPage()
+  await page.goto('https://app.joinhandshake.com/job-search/111?page=1&per_page=25')
+  const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://app.joinhandshake.com/*' }))[0].id!)
+  const panel = await context.newPage()
+  await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
+  await expect(panel.getByText('Data Analyst', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
+  await expect(panel.getByText('Globex', { exact: true }).first()).toBeVisible()
+  // The listing gets its score pill.
+  await expect(page.locator('[data-hook="right-content"] h1 [data-zipply-pill="111"]')).toHaveCount(1, { timeout: 10_000 })
+
+  // Another listing: same page, new address, new pane. The panel catches up by itself.
+  await page.click('[data-hook="job-result-card | 222"]')
+  await expect(panel.getByText('Backend Engineer', { exact: true }).first()).toBeVisible({ timeout: 10_000 })
+  await expect(panel.getByText('Initech', { exact: true }).first()).toBeVisible()
+  await expect(panel.getByText('Data Analyst', { exact: true })).toHaveCount(0)
+  await expect(page.locator('[data-hook="right-content"] h1 [data-zipply-pill="222"]')).toHaveCount(1, { timeout: 10_000 })
+  // And "Apply" from here carries the new job.
+  const job = await worker.evaluate(async (id) => ((await chrome.storage.session.get(`job:${id}`))[`job:${id}`] as { posting: { title: string } }).posting.title, tabId)
+  expect(job).toBe('Backend Engineer')
+  await panel.close()
+  await page.close()
+})
+
 test('No console errors on extension pages', () => {
   expect(errors.filter((e) => !/favicon|ERR_FILE_NOT_FOUND/.test(e))).toEqual([])
 })

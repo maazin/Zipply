@@ -1,4 +1,4 @@
-// Match scores on job listings (LinkedIn, Indeed). When you open a job in the
+// Match scores on job listings (LinkedIn, Indeed, Handshake). When you open a job in the
 // results list, its full description is scored against your resumes and a
 // small pill appears next to the title, and on that job's card in the list.
 // Nothing is fetched in the background: only jobs you open are scored.
@@ -6,13 +6,17 @@ import type { Posting, Verdict } from '@/shared/types'
 import { htmlToText, mergePosting } from './posting'
 
 export interface ListingSite {
-  name: 'LinkedIn' | 'Indeed'
+  name: 'LinkedIn' | 'Indeed' | 'Handshake'
   matches(url: URL): boolean
   jobId(url: URL, doc: Document): string
+  /** The job's own address, for the sheet and the already-applied check. */
+  jobUrl(id: string, url: URL): string
   title: string
   company: string
   location: string
   description: string
+  /** For pages a selector can't read (Handshake's generated class names). */
+  read?(doc: Document): { company?: string; location?: string; description?: string }
   /** Job cards in the results list, and how to read a card's job ID. */
   cards: string
   cardId(card: Element): string
@@ -28,6 +32,7 @@ export const SITES: ListingSite[] = [
       u.pathname.match(/\/jobs\/view\/(\d+)/)?.[1] ||
       doc.querySelector('[data-job-id].jobs-search-results-list__list-item--active, .jobs-search-results-list__list-item--active [data-job-id]')?.getAttribute('data-job-id') ||
       '',
+    jobUrl: (id) => `https://www.linkedin.com/jobs/view/${id}/`,
     title: '.job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, .top-card-layout__title, .jobs-details h1, h1.t-24',
     company: '.job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name, .topcard__org-name-link, .top-card-layout__second-subline a',
     location: '.job-details-jobs-unified-top-card__primary-description-container .tvm__text, .job-details-jobs-unified-top-card__bullet, .topcard__flavor--bullet',
@@ -40,6 +45,7 @@ export const SITES: ListingSite[] = [
     name: 'Indeed',
     matches: (u) => /(^|\.)indeed\.com$/.test(u.hostname),
     jobId: (u, doc) => u.searchParams.get('vjk') || u.searchParams.get('jk') || doc.querySelector('[data-jk].selected, .jobsearch-ResultsList .vjs-highlight [data-jk]')?.getAttribute('data-jk') || '',
+    jobUrl: (id, u) => `https://${u.hostname}/viewjob?jk=${id}`,
     title: '[data-testid="jobsearch-JobInfoHeader-title"], .jobsearch-JobInfoHeader-title, #viewJobSSRRoot h1',
     company: '[data-testid="inlineHeader-companyName"], [data-company-name="true"], .jobsearch-CompanyInfoContainer a',
     location: '[data-testid="inlineHeader-companyLocation"], [data-testid="job-location"], .jobsearch-JobInfoHeader-subtitle > div:last-child',
@@ -48,7 +54,54 @@ export const SITES: ListingSite[] = [
     cardId: (c) => c.getAttribute('data-jk') || '',
     cardTitle: (c) => (c.matches('a') ? c : c.querySelector('a[data-jk], h2 a')),
   },
+  {
+    // A single-page app: picking another job changes the address and the
+    // right-hand pane, never the page. Class names are generated, so the pane
+    // is read by its data-hook, its h1 and its section headings.
+    name: 'Handshake',
+    matches: (u) => /(^|\.)joinhandshake\.com$/.test(u.hostname) && /^\/(job-search|jobs|stu\/jobs)\/\d+/.test(u.pathname),
+    jobId: (u) => u.pathname.match(/\/(?:job-search|jobs|stu\/jobs)\/(\d+)/)?.[1] ?? '',
+    jobUrl: (id) => `https://app.joinhandshake.com/jobs/${id}`,
+    title: '[data-hook="right-content"] h1',
+    company: '[data-hook="right-content"] a[href^="/e/"]',
+    location: '',
+    description: '',
+    read: (doc) => {
+      const pane = doc.querySelector('[data-hook="right-content"]')
+      if (!pane) return {}
+      const company = Array.from(pane.querySelectorAll('a[href^="/e/"]')).map((a) => a.textContent?.trim() ?? '').find(Boolean) ?? ''
+      return { company, description: sectionText(pane, /^Job description$/i, /^(About the employer|Similar jobs)$/i) }
+    },
+    // data-hook="job-result-card | 11626853"; the company is a span, the title the first text div.
+    cards: '[data-hook^="job-result-card"]',
+    cardId: (c) => c.getAttribute('data-hook')?.match(/\d+/)?.[0] ?? '',
+    cardTitle: (c) => Array.from(c.querySelectorAll('div')).find((d) => d.children.length === 0 && Boolean(d.textContent?.trim())) ?? null,
+  },
 ]
+
+/** Text from the heading matching `start` up to the heading matching `stop`. */
+function sectionText(root: Element, start: RegExp, stop: RegExp): string {
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const parts: string[] = []
+  let on = false
+  while (walker.nextNode()) {
+    const node = walker.currentNode
+    const heading = node.parentElement?.closest('h2, h3, h4')
+    const label = heading?.textContent?.trim() ?? ''
+    if (heading && start.test(label)) {
+      on = true
+      continue
+    }
+    if (heading && on && stop.test(label)) break
+    if (on && node.textContent?.trim()) parts.push(node.textContent.trim())
+  }
+  return parts.join('\n')
+}
+
+/** Sites with listings, whatever page you start on (the address changes as you browse). */
+export function isListingHost(url: URL): boolean {
+  return /(^|\.)(linkedin|indeed|joinhandshake)\.com$/.test(url.hostname)
+}
 
 export function siteFor(url: URL): ListingSite | null {
   return SITES.find((s) => s.matches(url)) ?? null
@@ -59,14 +112,20 @@ const text = (doc: Document, sel: string) => doc.querySelector(sel)?.textContent
 /** The job open in the detail pane, if its description has loaded. */
 export function listingPosting(site: ListingSite, doc: Document, url: URL): Posting | null {
   const id = site.jobId(url, doc)
-  const descEl = doc.querySelector<HTMLElement>(site.description)
-  const description = descEl ? htmlToText(descEl.innerHTML) : ''
+  const extra = site.read?.(doc) ?? {}
+  const descEl = site.description ? doc.querySelector<HTMLElement>(site.description) : null
+  const description = extra.description ?? (descEl ? htmlToText(descEl.innerHTML) : '')
   // The title without our own pill's text.
   const titleEl = doc.querySelector(site.title)
   const title = titleEl ? Array.from(titleEl.childNodes).filter((n) => !(n instanceof Element && n.hasAttribute('data-zipply-pill'))).map((n) => n.textContent).join('').replace(/\s+/g, ' ').trim() : ''
   if (!id || !title || description.length < 80) return null
-  const jobUrl = site.name === 'LinkedIn' ? `https://www.linkedin.com/jobs/view/${id}/` : `https://${url.hostname}/viewjob?jk=${id}`
-  return mergePosting(jobUrl, { title, company: text(doc, site.company), location: text(doc, site.location), description, jobId: id })
+  return mergePosting(site.jobUrl(id, url), {
+    title,
+    company: extra.company ?? text(doc, site.company),
+    location: extra.location ?? (site.location ? text(doc, site.location) : ''),
+    description,
+    jobId: id,
+  })
 }
 
 export interface ListingScore {

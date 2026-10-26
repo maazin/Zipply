@@ -129,14 +129,29 @@ export function App() {
   // Follow the active tab.
   useEffect(() => {
     const onActivated = () => setNonce((n) => n + 1)
-    const onUpdated = (id: number, info: chrome.tabs.OnUpdatedInfo) => {
-      if (id === tab?.id && info.status === 'complete') setNonce((n) => n + 1)
+    // Sites that swap jobs without loading a page (Handshake, LinkedIn) change
+    // the address, and the page then reports the new job: refresh once for both.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const soon = (ms: number) => {
+      clearTimeout(timer)
+      timer = setTimeout(() => setNonce((n) => n + 1), ms)
     }
+    const onUpdated = (id: number, info: chrome.tabs.OnUpdatedInfo) => {
+      if (id !== tab?.id) return
+      if (info.status === 'complete') soon(0)
+      else if (info.url) soon(1500)
+    }
+    const onJob = (msg: { type?: string; tabId?: number }) => {
+      if (msg?.type === 'tab:job' && msg.tabId === tab?.id) soon(300)
+    }
+    chrome.runtime.onMessage.addListener(onJob)
     chrome.tabs.onActivated.addListener(onActivated)
     chrome.tabs.onUpdated.addListener(onUpdated)
     return () => {
+      clearTimeout(timer)
       chrome.tabs.onActivated.removeListener(onActivated)
       chrome.tabs.onUpdated.removeListener(onUpdated)
+      chrome.runtime.onMessage.removeListener(onJob)
     }
   }, [tab?.id])
 

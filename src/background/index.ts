@@ -233,8 +233,12 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
       return null
     }
     case 'job:seen':
-      // A posting page with no form (LinkedIn, a careers page): remember it for the "Apply" that follows.
-      if (tabId != null && (sender.frameId ?? 0) === 0) await rememberJob(tabId, 'Other', msg.posting)
+      // A posting page with no form (LinkedIn, Handshake, a careers page): remember it for the "Apply" that follows,
+      // and tell an open side panel, since on these sites a new job doesn't load a new page.
+      if (tabId != null && (sender.frameId ?? 0) === 0) {
+        await rememberJob(tabId, 'Other', msg.posting)
+        chrome.runtime.sendMessage({ type: 'tab:job', tabId }).catch(() => undefined)
+      }
       return null
     case 'auto:get':
       return tabId == null ? null : getAuto(tabId)

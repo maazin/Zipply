@@ -13,7 +13,7 @@ import { fillPage, lastReports, refreshMissing, tracked, watchAnswers } from './
 import { genericPosting, mergePosting, postingFromJsonLd } from './posting'
 import { detectApplication } from './detect'
 import { sanitizeForm } from './capture'
-import { clearStale, decorateCards, listingPosting, pillFor, placePill, siteFor, type ListingScore } from './listings'
+import { clearStale, decorateCards, isListingHost, listingPosting, pillFor, placePill, siteFor, type ListingScore } from './listings'
 
 declare global {
   interface Window {
@@ -77,13 +77,17 @@ function main() {
 
   async function getPosting(): Promise<Posting | null> {
     const key = canonicalUrl(location.href)
-    if (posting?.url === key) return posting.value
     const url = new URL(location.href)
     const site = siteFor(url)
+    // Listing panes (LinkedIn, Indeed, Handshake) swap jobs without a page load,
+    // so they're read fresh every time; other pages are read once per address.
+    if (!site && posting?.url === key) return posting.value
     const listing = site ? listingPosting(site, document, url) : null
+    // A listing still loading: wait, rather than take the page's own heading ("Jobs").
+    if (site && !listing) return null
     const value = mergePosting(listing?.url ?? location.href, listing, postingFromJsonLd(document), await adapter.posting?.(document, url), genericPosting(document))
     if (!value.title && !value.company && !value.description) return null
-    posting = { url: key, value }
+    if (!site) posting = { url: key, value }
     return value
   }
 
@@ -262,7 +266,7 @@ function main() {
     if (p && s && title && !pillFor(title, p.jobId)) placePill(title, p.jobId, s)
     decorateCards(site, document, scores)
   }
-  if (siteFor(new URL(location.href))) {
+  if (isListingHost(new URL(location.href))) {
     let listingTimer: ReturnType<typeof setTimeout> | undefined
     const listingObserver = new MutationObserver(() => {
       if (orphaned()) return listingObserver.disconnect()

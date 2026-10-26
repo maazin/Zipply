@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { clearStale, decorateCards, listingPosting, placePill, siteFor, type ListingScore } from '@/content/listings'
+import { clearStale, decorateCards, isListingHost, listingPosting, placePill, siteFor, type ListingScore } from '@/content/listings'
 
 function load(name: string) {
   const doc = new DOMParser().parseFromString(readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8'), 'text/html')
@@ -79,5 +79,50 @@ describe('listing sites', () => {
     card.querySelector('[data-job-id]')!.setAttribute('data-job-id', '333')
     decorateCards(site, document, new Map([['111', score]]))
     expect(card.querySelectorAll('[data-zipply-pill]')).toHaveLength(0)
+  })
+})
+
+describe('Handshake', () => {
+  const pane = (company: string, title: string, desc: string) => `
+    <h1>Jobs</h1>
+    <div data-hook="job-result-card | 111"><div><span>Globex</span><div>Data Analyst</div><div>Full-time</div></div></div>
+    <div data-hook="job-result-card | 222"><div><span>Initech</span><div>Backend Engineer</div></div></div>
+    <div data-hook="right-content">
+      <div><a href="/e/1"><img alt=""></a><a href="/e/1">${company}</a></div>
+      <a href="/jobs/111"><h1>${title}</h1></a>
+      <div><h3>At a glance</h3><div>Full-time</div></div>
+      <div><div><h3>Job description</h3></div><div><p>${desc}</p></div></div>
+      <div><h3>What they're looking for</h3><p>SQL and Python.</p></div>
+      <div><h3>About the employer</h3><p>Not part of the job.</p></div>
+    </div>`
+  const DESC = 'Turn scheduling data into decisions for operations leaders, with dashboards in Tableau on SQL.'
+
+  it('reads the job in the right-hand pane, not the page heading', () => {
+    document.body.innerHTML = pane('Globex', 'Data Analyst', DESC)
+    const url = new URL('https://app.joinhandshake.com/job-search/111?page=1&per_page=25')
+    const p = listingPosting(siteFor(url)!, document, url)
+    expect(p).toMatchObject({ title: 'Data Analyst', company: 'Globex', jobId: '111', url: 'https://app.joinhandshake.com/jobs/111' })
+    expect(p!.description).toContain('scheduling data')
+    expect(p!.description).toContain('SQL and Python')
+    expect(p!.description).not.toContain('Not part of the job')
+  })
+
+  it('knows the list page, and waits for the pane to load', () => {
+    expect(siteFor(new URL('https://app.joinhandshake.com/job-search?page=1'))).toBeNull()
+    expect(isListingHost(new URL('https://app.joinhandshake.com/job-search?page=1'))).toBe(true)
+    expect(siteFor(new URL('https://app.joinhandshake.com/stu/jobs/123'))?.name).toBe('Handshake')
+    document.body.innerHTML = '<h1>Jobs</h1><div data-hook="right-content"></div>'
+    const url = new URL('https://app.joinhandshake.com/job-search/111')
+    expect(listingPosting(siteFor(url)!, document, url)).toBeNull()
+  })
+
+  it('puts a pill on the scored card, next to its title', () => {
+    document.body.innerHTML = pane('Globex', 'Data Analyst', DESC)
+    const site = siteFor(new URL('https://app.joinhandshake.com/job-search/111'))!
+    decorateCards(site, document, new Map([['111', score]]))
+    const card = document.querySelector('[data-hook="job-result-card | 111"]')!
+    expect(card.querySelectorAll('[data-zipply-pill="111"]')).toHaveLength(1)
+    expect(card.querySelector('[data-zipply-pill="111"]')!.previousElementSibling!.textContent).toBe('Data Analyst')
+    expect(document.querySelectorAll('[data-hook="job-result-card | 222"] [data-zipply-pill]')).toHaveLength(0)
   })
 })

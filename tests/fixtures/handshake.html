@@ -1,0 +1,35 @@
+<!doctype html><html><head><title>Jobs | Handshake</title></head><body>
+<!-- Modeled on app.joinhandshake.com/job-search: generated class names, a page-level h1, cards marked by data-hook, and a right-hand pane that switches jobs without a page load. -->
+<h1>Jobs</h1>
+<div class="sc-list">
+  <div data-hook="job-result-card | 111" data-is-active="true"><div><span>Globex</span><div>Data Analyst</div><div>$70-80/hr · Full-time</div></div></div>
+  <div data-hook="job-result-card | 222" data-is-active="false"><div><span>Initech</span><div>Backend Engineer</div><div>$120K/yr · Full-time</div></div></div>
+</div>
+<div data-hook="right-content"></div>
+<script>
+  const jobs = {
+    111: { company: 'Globex', title: 'Data Analyst', desc: 'Turn scheduling data into decisions for operations leaders. You will build dashboards in Tableau on top of SQL, and automate weekly reporting in Python.', want: 'SQL and Python. Tableau. Strong Excel.' },
+    222: { company: 'Initech', title: 'Backend Engineer', desc: 'Build and run the services behind our payments product. You will design APIs in Go, run them on Kubernetes, and own their reliability end to end.', want: 'Go, Kubernetes, PostgreSQL. On-call experience.' },
+  }
+  function show(id) {
+    const j = jobs[id]
+    document.querySelector('[data-hook="right-content"]').innerHTML = `
+      <div class="sc-a"><a href="/e/1"><img alt=""></a><a href="/e/1">${j.company}</a></div>
+      <a href="/jobs/${id}"><h1 class="sc-hVXQrT">${j.title}</h1></a>
+      <div><h3>At a glance</h3><div>Full-time</div></div>
+      <div><div><h3>Job description</h3></div><div><p>${j.desc}</p></div></div>
+      <div><h3>What they're looking for</h3><p>${j.want}</p></div>
+      <div><h3>About the employer</h3><p>${j.company} is a company.</p></div>`
+  }
+  document.querySelectorAll('[data-hook^="job-result-card"]').forEach((card) =>
+    card.addEventListener('click', () => {
+      const id = card.getAttribute('data-hook').match(/\d+/)[0]
+      history.pushState(null, '', `/job-search/${id}?page=1&per_page=25`)
+      // The pane fills in a moment after the address changes, as on the real site.
+      document.querySelector('[data-hook="right-content"]').innerHTML = ''
+      setTimeout(() => show(id), 300)
+    }),
+  )
+  show(location.pathname.match(/\d+/)?.[0] ?? 111)
+</script>
+</body></html>
