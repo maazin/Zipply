@@ -259,14 +259,16 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
     case 'score:posting': {
       if (!(await getSettings()).listingScores) return { disabled: true }
       // Keyed by your resumes too, so adding, removing or retagging one rescores.
-      const key = `${msg.posting.url}|${(await listResumes()).map((m) => `${m.id}:${m.tag}`).join(',')}`
+      // And by the description's length: a clipped description read earlier mustn't stick.
+      const key = `${msg.posting.url}|${msg.posting.description.length}|${(await listResumes()).map((m) => `${m.id}:${m.tag}`).join(',')}`
       const hit = scoreCache.get(key)
       if (hit && Date.now() - hit.at < 10 * 60_000) return hit.result
       const c = await runChecks(msg.posting, await getProfile())
       const result = {
-        score: c.best?.score ?? null,
+        score: c.thin ? null : (c.best?.score ?? null),
         verdict: c.verdict.verdict,
-        reason: c.verdict.reason,
+        reason: c.thin ? 'Not enough of the description to score' : c.verdict.reason,
+        thin: c.thin,
         applied: Boolean(c.applied.alreadyApplied),
         resumes: c.comparison.rows.map((r) => ({ label: r.label, score: r.score })),
       }

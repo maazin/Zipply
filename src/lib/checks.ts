@@ -10,9 +10,14 @@ import { atsReport } from '@/core/score/atsCheck'
 import { db } from './db'
 import { getResumeTexts } from './repo'
 
+/** Fewer skills than this in a posting and its match score means nothing. */
+export const MIN_KEYWORDS = 3
+
 export interface ChecksResult {
   matches: (MatchResult & { tag: string; name: string; ats: AtsReport })[]
   best: (MatchResult & { tag: string; name: string; ats: AtsReport }) | null
+  /** Too few skills in the posting to score it (a clipped or vague description). */
+  thin: boolean
   /** All your resumes side by side, best first. */
   comparison: ResumeComparison
   verdict: VerdictResult
@@ -29,11 +34,14 @@ export async function runChecks(posting: Posting, profile: Profile): Promise<Che
     return { ...m, tag: r.tag, name: r.name, ats: atsReport(r.content, keywords) }
   })
   const best = matches[0] ?? null
+  const thin = keywords.length < MIN_KEYWORDS
   return {
     matches,
     best,
+    thin,
     comparison: compareResumes(matches),
-    verdict: computeVerdict({ posting, profile, matchScore: best?.score ?? null }),
+    // A score from almost no keywords is just your resume's section count: don't judge on it.
+    verdict: computeVerdict({ posting, profile, matchScore: thin ? null : (best?.score ?? null) }),
     redFlags: computeRedFlags(posting, profile, applied),
     applied: checkApplied(posting, applied),
   }

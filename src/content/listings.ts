@@ -70,6 +70,9 @@ export const SITES: ListingSite[] = [
       const pane = doc.querySelector('[data-hook="right-content"]')
       if (!pane) return {}
       const company = Array.from(pane.querySelectorAll('a[href^="/e/"]')).map((a) => a.textContent?.trim() ?? '').find(Boolean) ?? ''
+      // The description shows a few lines and "... More". Open it (as you would)
+      // and read on the next look, so a clipped text is never scored.
+      if (expandDescription(pane)) return { company, description: '' }
       return { company, description: sectionText(pane, /^Job description$/i, /^(About the employer|Similar jobs)$/i) }
     },
     // data-hook="job-result-card | 11626853"; the company is a span, the title the first text div.
@@ -78,6 +81,24 @@ export const SITES: ListingSite[] = [
     cardTitle: (c) => Array.from(c.querySelectorAll('div')).find((d) => d.children.length === 0 && Boolean(d.textContent?.trim())) ?? null,
   },
 ]
+
+/** Jobs whose description was opened, so collapsing it again yourself sticks. */
+const expanded = new Set<string>()
+
+/** Click the description's own "Show more" once per job. True if it was clipped and just opened. */
+function expandDescription(pane: Element): boolean {
+  const job = pane.querySelector('h1')?.closest('a')?.getAttribute('href')?.match(/\d+/)?.[0] ?? ''
+  if (!job || expanded.has(job)) return false
+  const heading = Array.from(pane.querySelectorAll('h2, h3, h4')).find((h) => /^Job description$/i.test(h.textContent?.trim() ?? ''))
+  if (!heading) return false
+  const more = Array.from(pane.querySelectorAll<HTMLButtonElement>('button')).find(
+    (b) => /^show more/i.test(b.getAttribute('aria-label') ?? '') && Boolean(heading.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING),
+  )
+  if (!more) return false
+  expanded.add(job)
+  more.click()
+  return true
+}
 
 /** Text from the heading matching `start` up to the heading matching `stop`. */
 function sectionText(root: Element, start: RegExp, stop: RegExp): string {
@@ -93,7 +114,8 @@ function sectionText(root: Element, start: RegExp, stop: RegExp): string {
       continue
     }
     if (heading && on && stop.test(label)) break
-    if (on && node.textContent?.trim()) parts.push(node.textContent.trim())
+    // Skip the clipping marks and buttons ("...", "More", "Less").
+    if (on && node.textContent?.trim() && !node.parentElement?.closest('button') && !/^(\.\.\.|…)$/.test(node.textContent.trim())) parts.push(node.textContent.trim())
   }
   return parts.join('\n')
 }
@@ -135,6 +157,8 @@ export interface ListingScore {
   applied: boolean
   /** Your resumes for this job, best first. */
   resumes?: { label: string; score: number }[]
+  /** Too little of the posting to score. */
+  thin?: boolean
 }
 
 const COLORS: Record<Verdict, string> = { Apply: '#15803d', Maybe: '#b45309', Skip: '#c42121' }
@@ -146,7 +170,7 @@ export function pill(doc: Document, jobId: string, s: ListingScore): HTMLElement
   host.style.marginLeft = '8px'
   host.style.verticalAlign = 'middle'
   const root = host.attachShadow({ mode: 'open' })
-  const color = s.applied ? '#6b6b76' : COLORS[s.verdict]
+  const color = s.applied || s.thin ? '#6b6b76' : COLORS[s.verdict]
   const label = pillLabel(s)
   root.innerHTML = `<span title="${esc(pillTitle(s))}" style="display:inline-flex;align-items:center;gap:4px;font:600 11px/1.6 system-ui,-apple-system,sans-serif;color:${color};border:1px solid ${color}55;border-radius:999px;padding:0 7px;background:transparent;white-space:nowrap">${label}</span>`
   return host
@@ -158,6 +182,7 @@ const short = (t: string) => (t.length > 16 ? `${t.slice(0, 15)}…` : t)
 /** "78 · Apply", plus the best resume's name when you have more than one. */
 export function pillLabel(s: ListingScore): string {
   if (s.applied) return 'Applied'
+  if (s.thin) return 'Not enough detail'
   const base = s.score == null ? s.verdict : `${s.score} · ${s.verdict}`
   const best = s.resumes?.[0]
   return best && s.resumes!.length > 1 ? `${base} · ${esc(short(best.label))}` : base

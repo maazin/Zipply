@@ -1,5 +1,5 @@
 <!doctype html><html><head><title>Jobs | Handshake</title></head><body>
-<!-- Modeled on app.joinhandshake.com/job-search: generated class names, a page-level h1, cards marked by data-hook, and a right-hand pane that switches jobs without a page load. -->
+<!-- Modeled on app.joinhandshake.com/job-search: generated class names, a page-level h1, cards marked by data-hook, a right-hand pane that switches jobs without a page load, and a description clipped behind "... More". -->
 <h1>Jobs</h1>
 <div class="sc-list">
   <div data-hook="job-result-card | 111" data-is-active="true"><div><span>Globex</span><div>Data Analyst</div><div>$70-80/hr · Full-time</div></div></div>
@@ -8,18 +8,24 @@
 <div data-hook="right-content"></div>
 <script>
   const jobs = {
-    111: { company: 'Globex', title: 'Data Analyst', desc: 'Turn scheduling data into decisions for operations leaders. You will build dashboards in Tableau on top of SQL, and automate weekly reporting in Python.', want: 'SQL and Python. Tableau. Strong Excel.' },
-    222: { company: 'Initech', title: 'Backend Engineer', desc: 'Build and run the services behind our payments product. You will design APIs in Go, run them on Kubernetes, and own their reliability end to end.', want: 'Go, Kubernetes, PostgreSQL. On-call experience.' },
+    111: { company: 'Globex', title: 'Data Analyst', intro: 'Globex helps hospitals plan staffing, and we are growing fast.', desc: 'Turn scheduling data into decisions for operations leaders. You will build dashboards in Tableau on top of SQL, model in Excel, and automate weekly reporting in Python.', want: 'Curious, careful and kind. Medical coverage and paid time off.' },
+    222: { company: 'Initech', title: 'Backend Engineer', intro: 'Initech moves money for small businesses across the country.', desc: 'Build and run the services behind our payments product. You will design APIs in Go and Java, run them on Kubernetes and AWS with PostgreSQL, and own their reliability end to end.', want: 'Owns outcomes. Equity package and 401(k) match.' },
   }
   function show(id) {
     const j = jobs[id]
-    document.querySelector('[data-hook="right-content"]').innerHTML = `
+    const pane = document.querySelector('[data-hook="right-content"]')
+    pane.innerHTML = `
       <div class="sc-a"><a href="/e/1"><img alt=""></a><a href="/e/1">${j.company}</a></div>
       <a href="/jobs/${id}"><h1 class="sc-hVXQrT">${j.title}</h1></a>
       <div><h3>At a glance</h3><div>Full-time</div></div>
-      <div><div><h3>Job description</h3></div><div><p>${j.desc}</p></div></div>
+      <div><div><h3>Job description</h3></div><div class="sc-desc"><p>${j.intro}</p><span>...</span><button type="button" aria-label="Show more (${j.title})">More</button></div></div>
       <div><h3>What they're looking for</h3><p>${j.want}</p></div>
       <div><h3>About the employer</h3><p>${j.company} is a company.</p></div>`
+    // Like Handshake: a few lines, then "... More" opens the rest.
+    pane.querySelector('button[aria-label^="Show more"]').addEventListener('click', (e) => {
+      const box = e.target.closest('.sc-desc')
+      box.innerHTML = `<p>${j.intro}</p><p>${j.desc}</p><button type="button" aria-label="Show less (${j.title})">Less</button>`
+    })
   }
   document.querySelectorAll('[data-hook^="job-result-card"]').forEach((card) =>
     card.addEventListener('click', () => {

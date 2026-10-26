@@ -267,6 +267,8 @@ function main() {
     decorateCards(site, document, scores)
   }
   if (isListingHost(new URL(location.href))) {
+    // Pills a previous copy left (before Zipply reloaded) may be stale: start clean.
+    document.querySelectorAll('[data-zipply-pill]').forEach((p) => p.remove())
     let listingTimer: ReturnType<typeof setTimeout> | undefined
     const listingObserver = new MutationObserver(() => {
       if (orphaned()) return listingObserver.disconnect()

@@ -605,15 +605,20 @@ test('The panel follows you through Handshake listings', async () => {
   await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
   await expect(panel.getByText('Data Analyst', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
   await expect(panel.getByText('Globex', { exact: true }).first()).toBeVisible()
-  // The listing gets its score pill.
-  await expect(page.locator('[data-hook="right-content"] h1 [data-zipply-pill="111"]')).toHaveCount(1, { timeout: 10_000 })
+  // The clipped description is opened, and the listing gets a real score (not just the section count).
+  await expect(page.locator('[data-hook="right-content"] button[aria-label^="Show less"]')).toHaveCount(1, { timeout: 10_000 })
+  await expect(page.locator('[data-hook="right-content"] h1 [data-zipply-pill="111"]')).toHaveText(/^\d+ · /, { timeout: 10_000 })
+  const pillText = (id: string) => page.locator(`[data-hook="right-content"] h1 [data-zipply-pill="${id}"]`).evaluate((el) => el.shadowRoot?.textContent ?? '')
+  const first = await pillText('111')
 
   // Another listing: same page, new address, new pane. The panel catches up by itself.
   await page.click('[data-hook="job-result-card | 222"]')
   await expect(panel.getByText('Backend Engineer', { exact: true }).first()).toBeVisible({ timeout: 10_000 })
   await expect(panel.getByText('Initech', { exact: true }).first()).toBeVisible()
   await expect(panel.getByText('Data Analyst', { exact: true })).toHaveCount(0)
-  await expect(page.locator('[data-hook="right-content"] h1 [data-zipply-pill="222"]')).toHaveCount(1, { timeout: 10_000 })
+  await expect(page.locator('[data-hook="right-content"] h1 [data-zipply-pill="222"]')).toHaveText(/^\d+ · /, { timeout: 10_000 })
+  // Different jobs, different scores (the bug gave every job the same 15).
+  expect(await pillText('222')).not.toBe(first)
   // And "Apply" from here carries the new job.
   const job = await worker.evaluate(async (id) => ((await chrome.storage.session.get(`job:${id}`))[`job:${id}`] as { posting: { title: string } }).posting.title, tabId)
   expect(job).toBe('Backend Engineer')

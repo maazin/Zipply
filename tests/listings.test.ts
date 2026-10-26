@@ -126,3 +126,33 @@ describe('Handshake', () => {
     expect(document.querySelectorAll('[data-hook="job-result-card | 222"] [data-zipply-pill]')).toHaveLength(0)
   })
 })
+
+describe('clipped and thin postings', () => {
+  it('opens a clipped Handshake description before reading it, once per job', () => {
+    document.body.innerHTML = `<div data-hook="right-content"><a href="/e/1">Globex</a><a href="/jobs/111"><h1>Data Analyst</h1></a>
+      <div><h3>Job description</h3><div id="d"><p>Globex helps hospitals plan staffing, and we are growing fast every year.</p><span>...</span><button aria-label="Show more (Data Analyst)">More</button></div></div>
+      <div><h3>About the employer</h3></div></div>`
+    let clicks = 0
+    document.querySelector('button')!.addEventListener('click', () => {
+      clicks++
+      document.querySelector('#d')!.innerHTML = '<p>Globex helps hospitals plan staffing.</p><p>Build Tableau dashboards on SQL and Python, and keep Excel models tidy.</p><button aria-label="Show less (Data Analyst)">Less</button>'
+    })
+    const url = new URL('https://app.joinhandshake.com/job-search/111')
+    const site = siteFor(url)!
+    expect(listingPosting(site, document, url)).toBeNull() // clipped: opened, read next time
+    const p = listingPosting(site, document, url)!
+    expect(clicks).toBe(1)
+    expect(p.description).toContain('Tableau dashboards')
+    expect(p.description).not.toMatch(/\bLess\b|\.\.\./)
+    // You collapse it again: it stays collapsed.
+    document.querySelector('#d')!.innerHTML = '<p>Globex helps hospitals plan staffing, and we are growing fast every year.</p><span>...</span><button aria-label="Show more (Data Analyst)">More</button>'
+    listingPosting(site, document, url)
+    expect(clicks).toBe(1)
+  })
+
+  it('labels a posting too thin to score instead of showing a number', async () => {
+    const { pillLabel } = await import('@/content/listings')
+    expect(pillLabel({ score: null, verdict: 'Maybe', reason: 'x', applied: false, thin: true })).toBe('Not enough detail')
+  })
+})
+

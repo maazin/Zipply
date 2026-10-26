@@ -406,7 +406,7 @@ function MatchCard({ checks, match, resumeId, onResume, tabId }: { checks: Check
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-xs text-muted">Match score</div>
-          <div className="text-2xl font-semibold tabular-nums">{match.score}</div>
+          <div className="text-2xl font-semibold tabular-nums">{checks.thin ? '—' : match.score}</div>
         </div>
         <div className="flex min-w-0 flex-1 flex-col items-end gap-1.5">
           <span className="max-w-full truncate text-[13px] text-muted">{match.tag || match.name}</span>
@@ -416,7 +416,13 @@ function MatchCard({ checks, match, resumeId, onResume, tabId }: { checks: Check
         </div>
       </div>
 
-      {checks.matches.length > 1 && (
+      {checks.thin && (
+        <p className="mt-2 text-xs text-muted" data-testid="thin-posting">
+          Not enough of the description to score. Expand it on the page, or paste it under Resumes → Compare.
+        </p>
+      )}
+
+      {!checks.thin && checks.matches.length > 1 && (
         <div className="mt-3 border-t border-line pt-3">
           <div className="mb-1.5 text-xs text-muted">Your resumes for this job</div>
           <ResumeRanking comparison={checks.comparison} selected={resumeId} onSelect={onResume} />
