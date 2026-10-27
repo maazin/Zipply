@@ -183,7 +183,8 @@ export function dashboardData(): { range: string; values: (string | number)[][] 
       values: [
         ['Total applications', `=${total}`],
         // "We received your application" is automatic; it doesn't count as an answer.
-        ['Answered (not counting auto-replies)', `=IFERROR(SUM(COUNTIF(${status},${answered}))/${total},0)`],
+        // SUMPRODUCT, not SUM(COUNTIF(…,{list})): Sheets counts only the list's first item without ARRAYFORMULA.
+        ['Answered (not counting auto-replies)', `=IFERROR(SUMPRODUCT(--${isAnswered})/${total},0)`],
         ['Reached interview or offer', `=IFERROR((COUNTIF(${status},"Interview")+COUNTIF(${status},"Offer"))/${total},0)`],
         ['Median days to an answer', `=IFERROR(MEDIAN(FILTER(IFERROR(${changed}-${date}),${isAnswered},ISNUMBER(${changed}),ISNUMBER(${date}))),"")`],
       ],

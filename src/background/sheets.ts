@@ -36,8 +36,10 @@ async function setupSheet(id: string): Promise<void> {
  * 2: dashboard formulas over whole columns. The old "A2:A" ranges had moved
  *    down one row for every row inserted under the header, so they skipped those
  *    applications; auto-replies no longer count as answers.
+ * 3: the share of applications answered counted only assessments (a list in
+ *    COUNTIF needs ARRAYFORMULA in Sheets).
  */
-const SHEET_FORMAT = 2
+const SHEET_FORMAT = 3
 
 async function repairFormats(id: string): Promise<void> {
   const version = (await getSettings()).sheetFormatVersion ?? 0
@@ -48,7 +50,7 @@ async function repairFormats(id: string): Promise<void> {
     const appsId = meta.sheets.find((s) => s.properties.title === APPS)?.properties.sheetId
     if (appsId != null) await gfetch(`${BASE}/${id}:batchUpdate`, S, { method: 'POST', body: JSON.stringify({ requests: appsDateFormats(appsId) }) })
   }
-  if (version < 2) {
+  if (version < 3) {
     // Rewrites the Dashboard tab's cells in place; its chart reads the same cells.
     await gfetch(`${BASE}/${id}/values:batchUpdate`, S, { method: 'POST', body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: dashboardData() }) })
   }
