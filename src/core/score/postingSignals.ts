@@ -43,15 +43,22 @@ const NOT_NEEDED = new RegExp(
 /** "Able to obtain", "eligible for": you'd get one through the job, not bring one. */
 const CAN_OBTAIN = /\b(obtain|eligib\w*|able to (?:get|acquire|receive)|willing(?:ness)? to (?:obtain|undergo|apply)|sponsor\w*\s+(?:\w+\s+){0,2}clearance|clearance sponsorship)\b/i
 
+/** Wording that makes it a requirement: "required", "must hold", "active", "current". */
+const REQUIRED = /\b(required|requires?|requirement|must|mandatory|need(?:ed|s)?|active|current(?:ly)?|hold(?:s|ing)?|possess(?:es|ing)?|maintain(?:s|ing)?|cleared|only)\b|^\s*(?:security\s+)?clearance(?:\s+level)?\s*:/i
+/** Only nice to have, or only sometimes: "preferred", "a plus", "may require", "if applicable". */
+const SOFT = /\b(prefer(?:red|ably|ence)?|plus|bonus|nice[- ]to[- ]have|desired|desirable|advantage(?:ous)?|ideal(?:ly)?|may|might|could|some (?:positions|roles|projects)|if (?:applicable|required|needed)|where (?:applicable|required)|as needed)\b/i
+
 /**
- * The clearance a posting asks you to already hold, or null. Only a sentence
- * naming a government clearance counts, and not one saying it isn't needed or
- * that you could get one through the job.
+ * The sentence asking you to already hold a clearance, or null. It has to name
+ * a government clearance and say it's required, and not that it's only
+ * preferred, sometimes needed, not needed, or something you'd get on the job.
  */
 export function clearanceAsk(description: string): string | null {
-  for (const sentence of description.split(/(?<=[.!?;])\s+|\n+/)) {
-    const m = sentence.match(CLEARANCE)
-    if (m && !NOT_NEEDED.test(sentence) && !CAN_OBTAIN.test(sentence)) return m[0].trim()
+  for (const raw of description.split(/(?<=[.!?;])\s+|\n+/)) {
+    const sentence = raw.replace(/^[\s•*·-]+/, '').trim()
+    if (!CLEARANCE.test(sentence) || NOT_NEEDED.test(sentence) || CAN_OBTAIN.test(sentence) || SOFT.test(sentence)) continue
+    // A bullet under "Requirements" may just say "Active Secret clearance".
+    if (REQUIRED.test(sentence) || sentence.split(/\s+/).length <= 6) return sentence.length > 140 ? `${sentence.slice(0, 137)}...` : sentence
   }
   return null
 }

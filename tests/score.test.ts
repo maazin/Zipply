@@ -241,6 +241,8 @@ describe('clearance', () => {
       'Must hold an active Secret clearance and not require sponsorship.',
       'Clearance: Top Secret',
       'U.S. citizens with a current DoD clearance only.',
+      '- Active Secret clearance',
+      'Applicants must hold a Top Secret clearance.',
     ]
     for (const d of asks) expect(clearanceAsk(d), d).not.toBeNull()
     const fine = [
@@ -252,6 +254,12 @@ describe('clearance', () => {
       'Must be able to obtain a security clearance.',
       'Applicants must be eligible for a Secret clearance.',
       'We are a clearance retailer serving outdoor brands.',
+      'Active security clearance preferred.',
+      'A Secret clearance is a plus.',
+      'Some positions may require a security clearance.',
+      'Security clearance, if applicable, will be verified after an offer.',
+      'Experience working with federal clients; security clearance desirable.',
+      'Our team supports customers in the public sector and defense industries, including programs with security clearance work.',
     ]
     for (const d of fine) expect(clearanceAsk(d), d).toBeNull()
   })

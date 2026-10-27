@@ -105,7 +105,7 @@ export function computeVerdict(input: VerdictInput): VerdictResult {
   if (block) blockers.push(block)
   if (profile.answers.hasSecurityClearance === 'No') {
     const c = clearanceAsk(posting.description)
-    if (c) blockers.push(`Asks for "${c}" and you don't have a clearance`)
+    if (c) blockers.push(`Needs a clearance you don't have: "${c}"`)
   }
 
   const dimensions: VerdictResult['dimensions'] = [
