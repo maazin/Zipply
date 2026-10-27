@@ -1,0 +1,74 @@
+<!doctype html><html><head><title>Easy apply - Data Analyst - Globex</title></head><body>
+<!-- Modeled on SmartRecruiters' oneclick-ui apply form (jobs.smartrecruiters.com/oneclick-ui/company/{Company}/publication/{uuid}): Angular wrappers (oc-input) around Lit web components (spl-input, spl-autocomplete, spl-dropzone, spl-textarea) whose label and input live in shadow roots. The host and its inner input share an id; the required star is an aria-hidden span; the city list opens inside the component after you type. -->
+<main>
+  <h1>Data Analyst</h1>
+  <spl-form-field><spl-dropzone data-test="apply-with-resume-container"></spl-dropzone></spl-form-field>
+  <oc-input formcontrolname="firstName" attrid="first-name-input"><spl-input type="text" required id="first-name-input" label="First name" autocomplete="given-name"></spl-input></oc-input>
+  <oc-input formcontrolname="lastName" attrid="last-name-input"><spl-input type="text" required id="last-name-input" label="Last name" autocomplete="family-name"></spl-input></oc-input>
+  <oc-input formcontrolname="email" attrid="email-input"><spl-input type="email" required id="email-input" label="Email" autocomplete="email"></spl-input></oc-input>
+  <oc-input formcontrolname="confirmEmail" attrid="confirm-email-input"><spl-input type="email" required id="confirm-email-input" label="Confirm your email" autocomplete="email"></spl-input></oc-input>
+  <oc-location><spl-autocomplete id="city-input" label="City" required></spl-autocomplete></oc-location>
+  <oc-input formcontrolname="linkedin" attrid="linkedin-input"><spl-input type="text" id="linkedin-input" label="LinkedIn"></spl-input></oc-input>
+  <oc-input formcontrolname="website" attrid="website-input"><spl-input type="text" id="website-input" label="Website"></spl-input></oc-input>
+  <spl-textarea id="hiring-manager-message-input" label="Let the company know about your interest"></spl-textarea>
+  <button type="button" id="next">Next</button>
+</main>
+<script>
+  const field = (host, control) => {
+    const id = host.getAttribute('id')
+    const star = host.hasAttribute('required') ? '<span aria-hidden="true">*</span>' : ''
+    const root = host.attachShadow({ mode: 'open' })
+    root.innerHTML = `<spl-internal-form-field variant="vertical"><label slot="label" for="${id}" id="${id}-label"><spl-typography-label variant="md"><span><span>${host.getAttribute('label')}${star}</span></span></spl-typography-label></label><div><div>${control}</div></div></spl-internal-form-field>`
+    const input = root.querySelector('input, textarea')
+    // Like Lit: the component keeps its own value from the inner field's input events.
+    input.addEventListener('input', () => {
+      host.value = input.value
+      host.dispatchEvent(new CustomEvent('spl-input', { bubbles: true, composed: true, detail: input.value }))
+    })
+    return { root, input }
+  }
+  if (!customElements.get('spl-input')) {
+    customElements.define('spl-input', class extends HTMLElement {
+      connectedCallback() {
+        if (this.shadowRoot) return
+        const req = this.hasAttribute('required') ? ' aria-required="true"' : ''
+        field(this, `<input autocomplete="${this.getAttribute('autocomplete') || ''}" id="${this.id}" type="${this.getAttribute('type') || 'text'}" placeholder="" aria-invalid="false"${req}>`)
+      }
+    })
+    customElements.define('spl-textarea', class extends HTMLElement {
+      connectedCallback() {
+        if (!this.shadowRoot) field(this, `<textarea id="${this.id}"></textarea>`)
+      }
+    })
+    customElements.define('spl-dropzone', class extends HTMLElement {
+      connectedCallback() {
+        if (this.shadowRoot) return
+        this.attachShadow({ mode: 'open' }).innerHTML = '<div><label for="spl-dropzone-file-input-2">Choose a file or drop it here</label><input type="file" id="spl-dropzone-file-input-2" accept=".doc, .docx, .pdf" aria-describedby="spl-dropzone-restriction-label-2"><span id="spl-dropzone-restriction-label-2">Resume (PDF, DOC, DOCX up to 10MB)</span></div>'
+      }
+    })
+    // City: type, and matching places appear in a list inside the component.
+    customElements.define('spl-autocomplete', class extends HTMLElement {
+      connectedCallback() {
+        if (this.shadowRoot) return
+        const { root, input } = field(this, '<input type="text" role="combobox" id="spl-form-element_10" autocomplete="off" aria-controls="city-list" aria-expanded="false"><div role="listbox" id="city-list"></div>')
+        const list = root.getElementById('city-list')
+        const CITIES = ['Tampa, Florida, United States', 'Tampere, Finland', 'Austin, Texas, United States']
+        input.addEventListener('input', () => {
+          const q = input.value.split(',')[0].toLowerCase()
+          setTimeout(() => {
+            list.innerHTML = CITIES.filter((c) => c.toLowerCase().startsWith(q)).map((c) => `<div role="option">${c}</div>`).join('')
+            input.setAttribute('aria-expanded', 'true')
+            list.querySelectorAll('[role="option"]').forEach((o) =>
+              o.addEventListener('click', () => {
+                input.value = o.textContent
+                this.dataset.selected = o.textContent
+                list.innerHTML = ''
+              }),
+            )
+          }, 100)
+        })
+      }
+    })
+  }
+</script>
+</body></html>

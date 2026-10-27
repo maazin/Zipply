@@ -6,6 +6,7 @@ import { greenhouse } from './greenhouse'
 import { lever } from './lever'
 import { ashby } from './ashby'
 import { oracle } from './oracle'
+import { smartrecruiters } from './smartrecruiters'
 
 /** Any other form: the rule-based matcher does all the work. */
 export const fallback: Adapter = {
@@ -14,7 +15,7 @@ export const fallback: Adapter = {
   isConfirmation: (doc) => genericConfirmation(doc),
 }
 
-export const ADAPTERS: Adapter[] = [workday, icims, greenhouse, lever, ashby, oracle]
+export const ADAPTERS: Adapter[] = [workday, icims, greenhouse, lever, ashby, oracle, smartrecruiters]
 
 export function pickAdapter(url: URL, doc: Document): Adapter {
   return ADAPTERS.find((a) => a.hosts?.test(url.hostname)) ?? ADAPTERS.find((a) => a.detect(url, doc)) ?? fallback

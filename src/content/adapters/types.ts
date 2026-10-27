@@ -1,6 +1,6 @@
 import type { AtsName, FieldReport, Posting, Profile } from '@/shared/types'
 import type { ProfileKey } from '@/shared/profileKeys'
-import type { Collected } from '../dom/collect'
+import { queryDeep, type Collected } from '../dom/collect'
 
 export interface RepeatResult {
   reports: FieldReport[]
@@ -32,7 +32,7 @@ const CONFIRM_TEXT =
 
 /** True when no application form is left on the page (fewer than 3 open text fields). */
 export function noFormLeft(doc: Document): boolean {
-  const open = Array.from(doc.querySelectorAll<HTMLInputElement>('input[type="text"], input[type="email"], input[type="tel"], input:not([type]), textarea')).filter(
+  const open = queryDeep<HTMLInputElement>(doc, 'input[type="text"], input[type="email"], input[type="tel"], input:not([type]), textarea').filter(
     (i) => !i.disabled && !i.closest('[hidden], [aria-hidden="true"]'),
   )
   return open.length < 3
@@ -40,7 +40,7 @@ export function noFormLeft(doc: Document): boolean {
 
 /** Visible confirmation wording in a heading or alert, with no form left to fill. */
 export function genericConfirmation(doc: Document): boolean {
-  const nodes = Array.from(doc.querySelectorAll('h1, h2, h3, [role="alert"], [role="status"], [class*="confirm" i], [class*="success" i], [class*="thank" i]'))
+  const nodes = queryDeep(doc, 'h1, h2, h3, [role="alert"], [role="status"], [class*="confirm" i], [class*="success" i], [class*="thank" i]')
   return nodes.some((n) => CONFIRM_TEXT.test(n.textContent ?? '')) && noFormLeft(doc)
 }
 

@@ -259,3 +259,56 @@ describe('Handshake applications', () => {
     expect(hs.appliedOn!(document, '444')).toBe('')
   })
 })
+
+describe('SmartRecruiters (fields inside web components)', () => {
+  const SR = 'https://jobs.smartrecruiters.com/oneclick-ui/company/Globex/publication/273278e1-db5f-42fc-b185-71d233cc85b5'
+  const inner = (hostId: string) => document.getElementById(hostId)!.shadowRoot!.querySelector('input, textarea') as HTMLInputElement
+
+  it('finds the fields inside shadow roots, with their labels', async () => {
+    const url = load('smartrecruiters.html', SR)
+    const { detectApplication } = await import('@/content/detect')
+    expect(document.querySelectorAll('input').length).toBe(0)
+    expect(pickAdapter(url, document).name).toBe('SmartRecruiters')
+    expect(detectApplication(document, new URL('https://careers.globex.com/apply')).isApplication).toBe(true)
+    const fields = collectFields(document)
+    const labels = fields.map((f) => `${f.desc.kind}:${f.desc.label}`)
+    expect(labels).toEqual(
+      expect.arrayContaining(['file:Choose a file or drop it here', 'text:First name', 'email:Confirm your email', 'combobox:City', 'textarea:Let the company know about your interest']),
+    )
+    expect(fields.find((f) => f.desc.label === 'First name')?.desc.required).toBe(true)
+  })
+
+  it('fills them and picks the city from the component’s own list', async () => {
+    const url = load('smartrecruiters.html', SR)
+    const reports = await fillPage(pickAdapter(url, document), ctx(), document)
+    expect(inner('first-name-input').value).toBe('Ada')
+    expect((document.getElementById('first-name-input') as HTMLElement & { value?: string }).value).toBe('Ada')
+    expect(inner('last-name-input').value).toBe('Lovelace')
+    expect(inner('email-input').value).toBe('ada@example.com')
+    expect(inner('confirm-email-input').value).toBe('ada@example.com')
+    expect(document.getElementById('city-input')!.dataset.selected).toMatch(/^Tampa/)
+    expect(reports.find((r) => r.label === 'First name')?.status).toBe('filled')
+  }, 20000)
+
+  it('reads the job from the public postings API', async () => {
+    const url = load('smartrecruiters.html', SR)
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true,
+      json: async () => ({
+        id: '744000156841854',
+        name: 'Data Analyst',
+        company: { name: 'Globex', identifier: 'Globex' },
+        location: { city: 'Tampa', region: 'Florida', fullLocation: 'Tampa, Florida, United States', remote: false, hybrid: true },
+        releasedDate: '2026-10-21T15:44:30.178Z',
+        typeOfEmployment: { label: 'Full-time' },
+        jobAd: { sections: { jobDescription: { text: '<p>Build dashboards in Tableau and SQL.</p>' }, qualifications: { text: '<ul><li>Python</li></ul>' } } },
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const p = await pickAdapter(url, document).posting!(document, url)
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.smartrecruiters.com/v1/companies/Globex/postings/273278e1-db5f-42fc-b185-71d233cc85b5')
+    expect(p).toMatchObject({ title: 'Data Analyst', company: 'Globex', location: 'Tampa, Florida, United States', jobId: '744000156841854', workMode: 'hybrid', datePosted: '2026-10-21' })
+    expect(p.description).toContain('Tableau')
+    vi.unstubAllGlobals()
+  })
+})

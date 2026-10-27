@@ -16,6 +16,28 @@ export interface Collected {
 
 const clean = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim()
 
+/**
+ * querySelectorAll that also looks inside open shadow roots, in page order.
+ * Forms built from web components (SmartRecruiters' spl-input and friends) keep
+ * every input in a shadow root, where a plain query finds none.
+ */
+export function queryDeep<T extends Element = Element>(root: ParentNode, selector: string): T[] {
+  const all = Array.from(root.querySelectorAll('*'))
+  if (!all.some((e) => e.shadowRoot)) return Array.from(root.querySelectorAll<T>(selector))
+  const out: T[] = []
+  for (const el of all) {
+    if (el.matches(selector)) out.push(el as T)
+    if (el.shadowRoot) out.push(...queryDeep<T>(el.shadowRoot, selector))
+  }
+  return out
+}
+
+/** The component whose shadow root holds `el`, if any. */
+export function hostOf(el: Node): Element | null {
+  const r = el.getRootNode()
+  return r instanceof ShadowRoot ? r.host : null
+}
+
 function textOf(el: Element | null): string {
   if (!el) return ''
   const strip = (hidden: boolean) => {
@@ -40,7 +62,8 @@ export function isOn(el: Element): boolean {
 
 export function isVisible(el: Element): boolean {
   const h = el as HTMLElement
-  if (h.hidden || h.closest('[hidden], [aria-hidden="true"]')) return false
+  // Hidden here, or a component it sits in is.
+  for (let n: Element | null = h; n; n = hostOf(n)) if ((n as HTMLElement).hidden || n.closest('[hidden], [aria-hidden="true"]')) return false
   const style = h.ownerDocument.defaultView?.getComputedStyle(h)
   if (style && (style.display === 'none' || style.visibility === 'hidden')) return false
   // jsdom (tests) has no layout, so rects are always empty there.
@@ -48,20 +71,19 @@ export function isVisible(el: Element): boolean {
   return h.getClientRects().length > 0
 }
 
-function byIds(doc: Document, ids: string | null): string {
+function byIds(scope: Document | ShadowRoot, ids: string | null): string {
   if (!ids) return ''
   return clean(
     ids
       .split(/\s+/)
-      .map((id) => textOf(doc.getElementById(id)))
+      .map((id) => textOf(scope.getElementById(id)))
       .join(' '),
   )
 }
 
 /** The best human label for a control. */
 export function labelFor(el: Element): string {
-  const doc = el.ownerDocument
-  const labelled = byIds(doc, el.getAttribute('aria-labelledby'))
+  const labelled = byIds(el.getRootNode() as Document | ShadowRoot, el.getAttribute('aria-labelledby'))
   if (labelled) return labelled
   const labels = (el as HTMLInputElement).labels
   if (labels && labels.length) {
@@ -84,7 +106,9 @@ export function labelFor(el: Element): string {
     }
     if (node.matches('fieldset, [role="group"], [role="radiogroup"], form')) break
   }
-  return ''
+  // A component's own label attribute (<spl-input label="First name">).
+  const host = hostOf(el)
+  return clean(host?.getAttribute('label') || host?.getAttribute('aria-label'))
 }
 
 /** Text shortly before the control in reading order (weak signal). */
@@ -108,7 +132,7 @@ function groupLabel(first: HTMLElement): string {
   const group = first.closest('fieldset, [role="radiogroup"], [role="group"]')
   if (group) {
     const legend = group.querySelector('legend')
-    const t = textOf(legend) || byIds(first.ownerDocument, group.getAttribute('aria-labelledby')) || clean(group.getAttribute('aria-label'))
+    const t = textOf(legend) || byIds(group.getRootNode() as Document | ShadowRoot, group.getAttribute('aria-labelledby')) || clean(group.getAttribute('aria-label'))
     if (t) return t
   }
   // Fall back to the text just above the options.
@@ -177,7 +201,7 @@ export function collectFields(root: ParentNode = document): Collected[] {
   const radioGroups = new Map<string, HTMLElement[]>()
   const checkGroups = new Map<string, HTMLElement[]>()
 
-  for (const el of Array.from(root.querySelectorAll(SELECTOR))) {
+  for (const el of queryDeep(root, SELECTOR)) {
     const kind = kindOf(el)
     if (!kind) continue
     if ((el as HTMLInputElement).disabled) continue
@@ -278,7 +302,7 @@ function groupField(members: HTMLElement[], kind: 'radio' | 'checkbox-group'): C
 
 export function findByZid(zid: string, root: Document = document): HTMLElement | null {
   // zids are generated (z1, z2, ...), so they need no escaping.
-  return root.querySelector(`[${ZID}="${zid}"]`)
+  return root.querySelector<HTMLElement>(`[${ZID}="${zid}"]`) ?? queryDeep<HTMLElement>(root, `[${ZID}="${zid}"]`)[0] ?? null
 }
 
 /** Re-read a field's current value (after filling or user edits). */

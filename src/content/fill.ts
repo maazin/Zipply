@@ -193,7 +193,8 @@ function rememberCorrection(t: Tracked) {
 /** Anything you answer by hand is saved with its label, so the next form fills it too. */
 export function watchAnswers(doc: Document = document, onChange?: () => void) {
   const handler = (e: Event) => {
-    const target = e.target as HTMLElement | null
+    // The field itself, also when it sits in a component's shadow root.
+    const target = (e.composedPath()[0] ?? e.target) as HTMLElement | null
     const zid = target?.getAttribute?.('data-zipply-id') ?? target?.getAttribute?.('data-zipply-group')
     const t = zid ? tracked.get(zid) : undefined
     if (t && t.key) rememberCorrection(t)
@@ -204,6 +205,8 @@ export function watchAnswers(doc: Document = document, onChange?: () => void) {
     onChange?.()
   }
   doc.addEventListener('change', handler, true)
+  // "change" never leaves a shadow root; leaving the field does.
+  doc.addEventListener('focusout', (e) => (e.composedPath()[0] as Node | undefined)?.getRootNode() instanceof ShadowRoot && handler(e), true)
   // Drafts you keep as-is are saved when you submit.
   const onSubmit = () => {
     for (const t of tracked.values()) if (t.draft && readValue(t.c)) remember(t, readValue(t.c) === t.draft ? 'ai' : 'typed')

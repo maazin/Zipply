@@ -10,7 +10,7 @@ import { totalYears } from '@/shared/profileKeys'
 import { findBadWord, normalizeCompany } from '@/shared/text'
 import {
   annualize,
-  CLEARANCE_TERMS,
+  clearanceAsk,
   SENIOR_TITLE,
   sponsorshipStance,
   workModeOf,
@@ -104,7 +104,7 @@ export function computeVerdict(input: VerdictInput): VerdictResult {
   const block = blocklistHit(posting, profile)
   if (block) blockers.push(block)
   if (profile.answers.hasSecurityClearance === 'No') {
-    const c = findBadWord(posting.description, CLEARANCE_TERMS)
+    const c = clearanceAsk(posting.description)
     if (c) blockers.push(`Asks for "${c}" and you don't have a clearance`)
   }
 

@@ -670,6 +670,37 @@ test('Logs applications Handshake says you made', async () => {
   await context.unroute('https://app.joinhandshake.com/**')
 })
 
+test('Fills a SmartRecruiters form whose fields are inside web components', async () => {
+  await context.route('https://jobs.smartrecruiters.com/**', (r) => r.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'smartrecruiters.html'), 'utf8') }))
+  await context.route('https://api.smartrecruiters.com/**', (r) =>
+    r.fulfill({
+      contentType: 'application/json',
+      headers: { 'access-control-allow-origin': '*' },
+      body: JSON.stringify({ id: '744000156841854', name: 'Data Analyst', company: { name: 'Globex' }, location: { fullLocation: 'Tampa, Florida, United States' }, jobAd: { sections: { jobDescription: { text: '<p>Build dashboards in Tableau on top of SQL, and automate reporting in Python.</p>' } } } }),
+    }),
+  )
+  const page = await context.newPage()
+  await page.goto('https://jobs.smartrecruiters.com/oneclick-ui/company/Globex/publication/273278e1-db5f-42fc-b185-71d233cc85b5')
+  // Seen as an application (the toolbar dot), though no input is outside a shadow root.
+  const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://jobs.smartrecruiters.com/*' }))[0].id!)
+  await expect.poll(() => worker.evaluate((id) => chrome.action.getBadgeText({ tabId: id }), tabId), { timeout: 10_000 }).toBe(' ')
+
+  const panel = await context.newPage()
+  await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
+  // The job comes from SmartRecruiters' API.
+  await expect(panel.getByText('Data Analyst', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
+  await panel.getByRole('button', { name: 'Fill this page' }).click({ timeout: 15_000 })
+  const inner = (id: string) => page.locator(`:not(input, textarea)#${id}`).first().evaluate((h) => (h.shadowRoot!.querySelector('input, textarea') as HTMLInputElement).value)
+  await expect.poll(() => inner('first-name-input'), { timeout: 10_000 }).toBe('Ada')
+  await expect.poll(() => inner('last-name-input'), { timeout: 10_000 }).toBe('Lovelace')
+  await expect.poll(() => inner('confirm-email-input'), { timeout: 10_000 }).toBe('ada@example.com')
+  await expect.poll(() => page.locator('spl-autocomplete#city-input').evaluate((h) => (h as HTMLElement).dataset.selected ?? ''), { timeout: 10_000 }).toMatch(/^Tampa/)
+  await panel.close()
+  await page.close()
+  await context.unroute('https://jobs.smartrecruiters.com/**')
+  await context.unroute('https://api.smartrecruiters.com/**')
+})
+
 test('No console errors on extension pages', () => {
   expect(errors.filter((e) => !/favicon|ERR_FILE_NOT_FOUND/.test(e))).toEqual([])
 })

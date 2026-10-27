@@ -3,7 +3,7 @@
 // Workday's live validation commits on blur (job_app_filler's finding).
 import { pickOption } from '@/core/matching/options'
 import { fromB64 } from '@/lib/crypto'
-import { isOn } from './collect'
+import { isOn, queryDeep } from './collect'
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -88,10 +88,11 @@ function realClick(el: HTMLElement) {
 
 function visibleOptions(doc: Document, owner: HTMLElement): HTMLElement[] {
   const listId = owner.getAttribute('aria-controls') || owner.getAttribute('aria-owns')
-  const list = listId ? doc.getElementById(listId) : null
+  // The list may sit in the same component's shadow root as its input.
+  const list = listId ? ((owner.getRootNode() as Document | ShadowRoot).getElementById?.(listId) ?? doc.getElementById(listId)) : null
   const scope: ParentNode = list ?? doc
   // Oracle's lists are grids: each option is a gridcell.
-  return Array.from(scope.querySelectorAll<HTMLElement>('[role="option"], [role="gridcell"], [data-automation-id="promptOption"], .select__option, [class*="option" i][id*="option" i]')).filter(
+  return queryDeep<HTMLElement>(scope, '[role="option"], [role="gridcell"], [data-automation-id="promptOption"], .select__option, [class*="option" i][id*="option" i]').filter(
     (o) => o.getClientRects().length > 0 || /jsdom/i.test(navigator.userAgent),
   )
 }

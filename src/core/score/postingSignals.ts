@@ -26,7 +26,35 @@ export function yearsRequired(text: string): number | null {
 
 export const SENIOR_TITLE = /\b(senior|sr\.?|staff|principal|lead|head of|director|manager ii|architect)\b/i
 
-export const CLEARANCE_TERMS = ['polygraph', 'clearance', 'top secret', 'ts/sci', 'secret clearance', 'security clearance']
+/** A government clearance, not "background check clearance" or "medical clearance". */
+const CLEARANCE = /\b(polygraph|top[ -]secret|ts\s*\/\s*sci|(?:security|secret|government|federal|dod|doe|active|public trust)\s+clearance|clearance\s*(?:level)?\s*[:(-]\s*(?:secret|top secret|ts|public trust))\b/i
+/** "No clearance required", "does not require a security clearance". */
+const NOT_NEEDED = new RegExp(
+  [
+    // "no security clearance", "without a clearance"
+    String.raw`\b(?:no|not|without)\s+(?:an?\s+)?(?:[\w/-]+\s+){0,3}(?:clearance|polygraph)`,
+    // "clearance is not required", "clearance: not needed"
+    String.raw`(?:clearance|polygraph)[^.]{0,30}\b(?:not|isn['’]t|n['’]t)\s+(?:\w+\s+)?(?:required|needed|necessary)`,
+    // "does not require a security clearance", "doesn't need a clearance"
+    String.raw`\b(?:not|n['’]t)\s+(?:require|need)\b[^.]{0,40}(?:clearance|polygraph)`,
+  ].join('|'),
+  'i',
+)
+/** "Able to obtain", "eligible for": you'd get one through the job, not bring one. */
+const CAN_OBTAIN = /\b(obtain|eligib\w*|able to (?:get|acquire|receive)|willing(?:ness)? to (?:obtain|undergo|apply)|sponsor\w*\s+(?:\w+\s+){0,2}clearance|clearance sponsorship)\b/i
+
+/**
+ * The clearance a posting asks you to already hold, or null. Only a sentence
+ * naming a government clearance counts, and not one saying it isn't needed or
+ * that you could get one through the job.
+ */
+export function clearanceAsk(description: string): string | null {
+  for (const sentence of description.split(/(?<=[.!?;])\s+|\n+/)) {
+    const m = sentence.match(CLEARANCE)
+    if (m && !NOT_NEEDED.test(sentence) && !CAN_OBTAIN.test(sentence)) return m[0].trim()
+  }
+  return null
+}
 
 export const SPONSORSHIP_OFFERED = [
   'will sponsor',

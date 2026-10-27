@@ -232,3 +232,34 @@ describe('ATS readability', () => {
     expect(r.checks.find((c) => c.name === 'Clean characters')!.pass).toBe(false)
   })
 })
+
+describe('clearance', () => {
+  it('only counts a government clearance the job requires you to hold', async () => {
+    const { clearanceAsk } = await import('@/core/score/postingSignals')
+    const asks = [
+      'Active TS/SCI clearance with polygraph required.',
+      'Must hold an active Secret clearance and not require sponsorship.',
+      'Clearance: Top Secret',
+      'U.S. citizens with a current DoD clearance only.',
+    ]
+    for (const d of asks) expect(clearanceAsk(d), d).not.toBeNull()
+    const fine = [
+      'This position does not require a security clearance.',
+      'No security clearance required.',
+      'Security clearance is not required for this role.',
+      'Offer contingent on background check clearance and drug screening.',
+      'Candidates must complete medical clearance before starting.',
+      'Must be able to obtain a security clearance.',
+      'Applicants must be eligible for a Secret clearance.',
+      'We are a clearance retailer serving outdoor brands.',
+    ]
+    for (const d of fine) expect(clearanceAsk(d), d).toBeNull()
+  })
+
+  it("doesn't skip a job for saying no clearance is needed", () => {
+    const p = profile()
+    p.answers.hasSecurityClearance = 'No'
+    const v = computeVerdict({ posting: posting({ description: JD + '\nThis position does not require a security clearance.' }), profile: p, matchScore: 90 })
+    expect(v.blockers.join(' ')).not.toMatch(/clearance/)
+  })
+})

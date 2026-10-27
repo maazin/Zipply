@@ -2,6 +2,7 @@
 // Only when it does does Zipply read the form, show the toolbar dot and watch
 // for the confirmation page. The panel can always scan a page on request.
 import { ADAPTERS } from './adapters'
+import { queryDeep } from './dom/collect'
 
 const CONTROLS = 'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]):not([type=search]), textarea, select'
 const APPLY_WORDS = /\b(apply|application|applicant|candidate|career|careers|job|jobs|position|opening|vacanc|hiring|recruit)/i
@@ -21,7 +22,7 @@ function attrText(el: Element): string {
 }
 
 function labelText(doc: Document): string {
-  return Array.from(doc.querySelectorAll('label, legend, [class*="label" i]'))
+  return queryDeep(doc, 'label, legend, [class*="label" i]')
     .slice(0, 200)
     .map((l) => l.textContent ?? '')
     .join(' ')
@@ -29,9 +30,9 @@ function labelText(doc: Document): string {
 }
 
 export function detectApplication(doc: Document = document, url: URL = new URL(location.href)): Detection {
-  if (ADAPTERS.some((a) => a.hosts?.test(url.hostname))) return { isApplication: true, score: 99, fields: doc.querySelectorAll(CONTROLS).length }
+  if (ADAPTERS.some((a) => a.hosts?.test(url.hostname))) return { isApplication: true, score: 99, fields: queryDeep(doc, CONTROLS).length }
 
-  const controls = Array.from(doc.querySelectorAll(CONTROLS))
+  const controls = queryDeep(doc, CONTROLS)
   const fields = controls.length
   if (fields < 3) return { isApplication: false, score: 0, fields }
 
