@@ -4,8 +4,8 @@
 // read in memory only; just the resulting status and date are kept.
 import type { AppliedEntry, AppStatus, StatusEvent } from '@/shared/types'
 import { uid } from '@/shared/defaults'
-import { todayISO, toISODate } from '@/shared/text'
-import { buildQuery, classifyEmail, matchApplication, nextStatus } from '@/core/gmail/rules'
+import { daysBetween, todayISO, toISODate } from '@/shared/text'
+import { buildQueries, classifyEmail, matchApplication, nextStatus } from '@/core/gmail/rules'
 import { db } from '@/lib/db'
 import { getSettings, updateSettings } from '@/lib/repo'
 import { gfetch, HttpError, SCOPES } from './google'
@@ -51,13 +51,14 @@ function header(m: Message, name: string): string {
 /** Full body text. Classification never relies on the snippet. */
 async function bodyText(m: Message): Promise<string> {
   const plain = findPart(m.payload, 'text/plain')
-  if (plain?.body?.data) return b64url(plain.body.data)
-  const html = findPart(m.payload, 'text/html')
-  if (html?.body?.data) {
-    const r = await offscreen<{ text?: string }>({ type: 'html2text', html: b64url(html.body.data) })
-    return r?.text ?? ''
-  }
-  return ''
+  const text = plain?.body?.data ? b64url(plain.body.data) : ''
+  // Some senders (Paycom) put HTML in the plain-text part.
+  if (text && !/^\s*<(!doctype|html)/i.test(text)) return text
+  const html = findPart(m.payload, 'text/html')?.body?.data
+  const source = html ? b64url(html) : text
+  if (!source) return ''
+  const r = await offscreen<{ text?: string }>({ type: 'html2text', html: source })
+  return r?.text ?? ''
 }
 
 async function listIds(q: string, max = 300): Promise<string[]> {
@@ -118,8 +119,11 @@ let syncing = false
  *    company; repeat rows for one job; sender names; German, French, Spanish
  *    and Dutch phrases; a grace period for late-logged applications.
  * 4: a match needs the company named in the email, not just the role title.
+ * 5: rejections worded "won't be moving forward", "decided not to progress",
+ *    "not a match" and the like were read as Received; every company is searched,
+ *    not only the first 40.
  */
-export const RULES_VERSION = 4
+export const RULES_VERSION = 5
 /** An email can arrive a few days before the row's date (logged late, time zones). */
 const GRACE_DAYS = 3
 
@@ -141,9 +145,15 @@ export async function syncGmail(): Promise<SyncResult> {
       await updateSettings({ gmailRulesVersion: RULES_VERSION })
     }
 
-    const ids = await listIds(buildQuery(apps.map((a) => a.company)))
+    // Companies you're still waiting on, newest first; searched back to the oldest of them.
+    const open = apps.filter((a) => a.status !== 'Rejected' && a.status !== 'Offer').sort((a, b) => (b.dateApplied || '').localeCompare(a.dateApplied || ''))
+    const oldest = open.map((a) => a.dateApplied).filter(Boolean).sort()[0]
+    const days = Math.min(120, Math.max(30, oldest ? daysBetween(oldest) + GRACE_DAYS + 1 : 30))
+    const ids: string[] = []
+    for (const q of buildQueries(open.map((a) => a.company), days)) ids.push(...(await listIds(q)))
     const seen = new Set((await db.emails.bulkGet(ids)).filter(Boolean).map((r) => r!.id))
-    const fresh = ids.filter((id) => !seen.has(id)).reverse() // oldest first, so statuses advance in order
+    // Oldest first, so statuses advance in order. Gmail's IDs grow with time.
+    const fresh = [...new Set(ids)].filter((id) => !seen.has(id)).sort((a, b) => a.length - b.length || a.localeCompare(b))
     let changed = 0
     let unmatched = 0
 

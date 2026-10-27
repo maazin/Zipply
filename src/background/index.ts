@@ -13,7 +13,7 @@ import { coverLetter, draftAnswer, mapFields, tailoringTips } from './ai/tasks'
 import { getToken, NotConnectedError, SCOPES, signOut, userEmail } from './google'
 import { ensureSheet, NoSheetError, refreshApplied } from './sheets'
 import { flushQueue, queueSize } from './queue'
-import { bareContext, logJob } from './log'
+import { bareContext, logApplied, logJob } from './log'
 import { assignEmail, messageSummary, syncGmail } from './gmail'
 import { diagnostics, healthChecks } from './health'
 import { runChecks } from '@/lib/checks'
@@ -240,6 +240,18 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
         chrome.runtime.sendMessage({ type: 'tab:job', tabId }).catch(() => undefined)
       }
       return null
+    case 'job:applied': {
+      // Scored the way the panel scores it, from the panel's own pick when it has one.
+      const tabJob = tabId != null ? await getJob(tabId) : null
+      const ats: AtsName = /(^|\.)joinhandshake\.com$/.test(new URL(sender.url ?? 'about:blank').hostname) ? 'Handshake' : 'Other'
+      return logApplied(msg.jobs, ats, async (p) => {
+        if (tabJob?.match && tabJob.posting.jobId === p.jobId) return tabJob
+        if (!p.description) return {}
+        const c = await runChecks(p, await getProfile())
+        const best = c.thin ? null : c.best
+        return { match: best, verdict: c.verdict, redFlags: c.redFlags, resumeId: best?.resumeId ?? null, resumeTag: best?.tag || best?.name || '' }
+      })
+    }
     case 'auto:get':
       return tabId == null ? null : getAuto(tabId)
     case 'auto:set':

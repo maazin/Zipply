@@ -10,6 +10,8 @@
   const jobs = {
     111: { company: 'Globex', title: 'Data Analyst', intro: 'Globex helps hospitals plan staffing, and we are growing fast.', desc: 'Turn scheduling data into decisions for operations leaders. You will build dashboards in Tableau on top of SQL, model in Excel, and automate weekly reporting in Python.', want: 'Curious, careful and kind. Medical coverage and paid time off.' },
     222: { company: 'Initech', title: 'Backend Engineer', intro: 'Initech moves money for small businesses across the country.', desc: 'Build and run the services behind our payments product. You will design APIs in Go and Java, run them on Kubernetes and AWS with PostgreSQL, and own their reliability end to end.', want: 'Owns outcomes. Equity package and 401(k) match.' },
+    // One you applied to inside Handshake: no confirmation page, just "Applied on <date>".
+    333: { company: 'Umbrella', title: 'ML Engineer', intro: 'Umbrella builds forecasting tools for clinics.', desc: 'Train and ship models in Python with PyTorch and scikit-learn, build data pipelines in SQL and Airflow, and deploy on AWS with Docker.', want: 'Curious and careful.', applied: true },
   }
   function show(id) {
     const j = jobs[id]
@@ -17,6 +19,7 @@
     pane.innerHTML = `
       <div class="sc-a"><a href="/e/1"><img alt=""></a><a href="/e/1">${j.company}</a></div>
       <a href="/jobs/${id}"><h1 class="sc-hVXQrT">${j.title}</h1></a>
+      ${j.applied ? `<div><h2>Applied on ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</h2><button type="button">Withdraw application</button></div>` : ''}
       <div><h3>At a glance</h3><div>Full-time</div></div>
       <div><div><h3>Job description</h3></div><div class="sc-desc"><p>${j.intro}</p><span>...</span><button type="button" aria-label="Show more (${j.title})">More</button></div></div>
       <div><h3>What they're looking for</h3><p>${j.want}</p></div>

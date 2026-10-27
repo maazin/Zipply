@@ -82,6 +82,8 @@ export type ContentToBg =
   | { type: 'score:posting'; posting: Posting }
   /** Field states changed after a fill (you edited something); not a fill. */
   | { type: 'job:seen'; posting: Posting }
+  /** The site says you applied (Handshake's "Applied on …", its list of your applications). */
+  | { type: 'job:applied'; jobs: { posting: Posting; date: string }[] }
   | { type: 'auto:get' }
   | { type: 'auto:set'; resumeId: string | null }
   | { type: 'auto:clear' }

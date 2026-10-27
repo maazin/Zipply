@@ -27,7 +27,11 @@ describe('sheet layout', () => {
   it('builds the dashboard tab', () => {
     const data = dashboardData()
     const cells = JSON.stringify(data)
-    expect(cells).toContain('COUNTIFS(Applications!B2:B')
+    // Whole columns: a range like B2:B moves down whenever a row is inserted under the header.
+    expect(cells).toContain('COUNTIFS(Applications!B:B')
+    expect(cells).not.toMatch(/Applications![A-Z]\d+:/)
+    // "We received your application" isn't an answer.
+    expect(data.flatMap((d) => d.values.flat()).join(' ')).toContain('{"Assessment","Interview","Offer","Rejected"}')
     expect(cells).toContain('MEDIAN(FILTER(')
     expect(cells).toContain('Going stale')
     const cal = data.find((d) => d.range === 'Dashboard!I1')!
@@ -51,5 +55,16 @@ describe('sheet layout', () => {
     const reqs = JSON.stringify(dashboardRequests(0, 1))
     expect(reqs).toContain('addChart')
     expect(reqs).toContain('gradientRule')
+  })
+})
+
+describe('statuses you type yourself', () => {
+  it('reads other words and casing', async () => {
+    const { readStatus } = await import('@/core/sheets/layout')
+    expect(readStatus('rejected')).toBe('Rejected')
+    expect(readStatus('Declined')).toBe('Rejected')
+    expect(readStatus('Interviewing')).toBe('Interview')
+    expect(readStatus(' OFFER ')).toBe('Offer')
+    expect(readStatus('')).toBe('Applied')
   })
 })

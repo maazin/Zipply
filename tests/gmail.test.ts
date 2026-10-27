@@ -91,3 +91,43 @@ describe('reading the sheet and searching Gmail', () => {
   })
 })
 
+
+describe('rejections in the words companies use', () => {
+  // Sentences from real rejection emails. Each also says "thank you for applying",
+  // which used to win and mark them Received.
+  const rejections: [string, string][] = [
+    ['Thank You for Your Interest in The Home Depot', 'Thank you for applying for the Software Engineer position with The Home Depot. After careful consideration, we will not be moving you forward in the selection process.'],
+    ['Amazon application: Status update', 'Thank you for your application for the position of Software Development Engineer. After careful consideration, we have decided not to progress with your application.'],
+    ['Thanks for your interest in Uber', "Thanks so much for your interest in our Software Engineer I role. We've reviewed your application and unfortunately, it is not a match for this particular role."],
+    ['Update: Seso', "Thank you for your application to the Software Engineer posting! Unfortunately, we won't be moving forward at this time."],
+    ['Update on your application with McKinsey & Company', 'Unfortunately, after reviewing your application carefully, we have made the difficult decision to not move forward with your candidacy at this time.'],
+    ['ESET Feedback', 'Unfortunately, after careful consideration of your work profile, we decided to continue in the recruitment process with candidates who meet our requirements better.'],
+    ['UnitedHealth Group update', 'Unfortunately, the opening for this specific position is no longer available at this time.'],
+    ['Update on your application at Wayve', "We've reviewed your application in detail, and on this occasion we won't be moving forward."],
+    ['Maazin - Thank you for your interest', 'After careful consideration, we’ve decided not to move forward with your candidacy for this particular position.'],
+    ['Thank you for your interest in Eurofins', 'Please be assured your candidacy was given full consideration; however, we have chosen to move forward with other candidates.'],
+    ['Your application', 'We regret to let you know that you have not been selected for this role.'],
+  ]
+  it.each(rejections)('reads "%s" as Rejected', (subject, body) => {
+    expect(classifyEmail(subject, body)).toBe('Rejected')
+  })
+
+  it('leaves acknowledgments and conditional warnings alone', () => {
+    expect(classifyEmail('Thank you for applying', 'We will review your application alongside other candidates and contact candidates whose experience best matches the role.')).toBe('Received')
+    expect(classifyEmail('Complete your assessment', 'If you do not complete the online assessment, we will not be able to move forward with your application.')).toBe('Assessment')
+    expect(classifyEmail('Application received', 'Candidates not selected will be notified by email. Thank you for applying.')).toBe('Received')
+  })
+})
+
+describe('buildQueries', () => {
+  it('searches every company, not only the first 40', async () => {
+    const { buildQueries } = await import('@/core/gmail/rules')
+    const names = Array.from({ length: 70 }, (_, i) => `Company${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + Math.floor(i / 26))}`)
+    const qs = buildQueries(names, 45)
+    expect(qs).toHaveLength(3)
+    expect(qs[0]).toMatch(/^newer_than:45d /)
+    expect(qs[0]).toContain('from:greenhouse.io')
+    expect(qs[2]).not.toContain('from:greenhouse.io')
+    expect(qs.join(' ')).toContain(`"${names[69].toLowerCase()}"`)
+  })
+})

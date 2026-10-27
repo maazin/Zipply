@@ -237,3 +237,25 @@ describe('career-site names', () => {
     expect(companyFromSiteName('Careers')).toBe('Careers')
   })
 })
+
+describe('Handshake applications', () => {
+  it('reads the My jobs table', async () => {
+    const { handshakeApplications } = await import('@/content/listings')
+    document.body.innerHTML = `<table><tr data-hook="row-1"><td><a href="/jobs/11517102" aria-label="Employer, Avery. Title, Analyst. Location, Onsite, based in Miami, FL. Applied, 10/26/2026. Status, Applied"></a></td><td headers="employerName"><div><p>Avery</p><p data-hook="lockup-subheading">Internet &amp; Software</p></div></td><td headers="title"><span>Analyst</span></td><td headers="location"><span>Onsite, based in Miami, FL</span></td><td headers="applicationDate"><span>10/26/2026</span></td><td headers="status"><span>Applied</span></td></tr>
+      <tr><td><a href="/jobs/2" aria-label="Employer, Globex, Inc.. Title, Data Analyst, Tech. Location, Remote. Applied, 10/20/2026. Status, Applied"></a></td></tr></table>`
+    const rows = handshakeApplications(document)
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ date: '2026-10-26', posting: { company: 'Avery', title: 'Analyst', jobId: '11517102', location: 'Onsite, based in Miami, FL', url: 'https://app.joinhandshake.com/jobs/11517102' } })
+    // Only the link's label to go on.
+    expect(rows[1]).toMatchObject({ date: '2026-10-20', posting: { company: 'Globex, Inc.', title: 'Data Analyst, Tech', location: 'Remote' } })
+  })
+
+  it('reads "Applied on" only for the job the pane shows', async () => {
+    const { SITES } = await import('@/content/listings')
+    const hs = SITES.find((s) => s.name === 'Handshake')!
+    document.body.innerHTML = `<div data-hook="right-content"><a href="/jobs/333"><h1>ML Engineer</h1></a><div><h2>Applied on October 26, 2026</h2></div></div>`
+    expect(hs.appliedOn!(document, '333')).toBe('2026-10-26')
+    // Still the last job's pane while the next one loads.
+    expect(hs.appliedOn!(document, '444')).toBe('')
+  })
+})

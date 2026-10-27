@@ -80,6 +80,20 @@ export function entryFromRecord(r: JobRecord, row?: number): AppliedEntry {
 
 const STATUSES: AppStatus[] = ['Applied', 'Received', 'Assessment', 'Interview', 'Offer', 'Rejected']
 
+/** Statuses typed by hand in other words ("rejected", "Declined", "Interviewing"). */
+const STATUS_WORDS: [RegExp, AppStatus][] = [
+  [/^(rejected|declined|not selected|no offer|turned down)$/i, 'Rejected'],
+  [/^(interview(ing|ed)?|phone screen|onsite)$/i, 'Interview'],
+  [/^(assessment|oa|online assessment|take[- ]home|coding challenge)$/i, 'Assessment'],
+  [/^(offer(ed)?)$/i, 'Offer'],
+  [/^(received|acknowledged|in review|under review|reviewed)$/i, 'Received'],
+]
+
+export function readStatus(s: string): AppStatus {
+  const t = s.trim()
+  return STATUSES.find((x) => x.toLowerCase() === t.toLowerCase()) ?? STATUS_WORDS.find(([re]) => re.test(t))?.[1] ?? 'Applied'
+}
+
 /** Parse the Applications tab (without its header) into the local lookup cache. */
 export function parseRows(values: string[][], firstRow = 2): AppliedEntry[] {
   const out: AppliedEntry[] = []
@@ -96,7 +110,7 @@ export function parseRows(values: string[][], firstRow = 2): AppliedEntry[] {
       url,
       // Dates may come back as serial numbers if the cells lost their date format.
       dateApplied: toISODate(dateApplied),
-      status: (STATUSES.includes(status as AppStatus) ? status : 'Applied') as AppStatus,
+      status: readStatus(status),
       firstReply: toISODate(firstReply),
       lastStatusChange: toISODate(lastStatusChange),
       row: firstRow + i,
@@ -105,7 +119,15 @@ export function parseRows(values: string[][], firstRow = 2): AppliedEntry[] {
   return out
 }
 
-const A = (col: keyof typeof COL) => `${APPS}!${COL[col]}2:${COL[col]}`
+/**
+ * A whole column of the Applications tab. Not "B2:B": Sheets moves such a range
+ * down whenever a row is inserted above it, and the dashboard then skipped every
+ * application added that way. The header row is text, so the formulas ignore it.
+ */
+const A = (col: keyof typeof COL) => `${APPS}!${COL[col]}:${COL[col]}`
+
+/** A company answered: a decision or a next step, not an automatic "we received it". */
+const ANSWERED = ['Assessment', 'Interview', 'Offer', 'Rejected']
 
 /**
  * Dashboard cells as [start cell, values] pairs, written with USER_ENTERED so the
@@ -115,15 +137,18 @@ const A = (col: keyof typeof COL) => `${APPS}!${COL[col]}2:${COL[col]}`
  *   A6:B9 response metrics, A11:B17 status funnel, A18:C21 results by verdict
  *   F1:G13 applications per week (12 weeks, charted)
  *   I1:U8 activity calendar, 7 days x 12 weeks (JobSync getActivityCalendarData)
- *   A24 going stale (30+ days, no reply)
+ *   A24 going stale (30+ days, no answer)
  */
 export function dashboardData(): { range: string; values: (string | number)[][] }[] {
   const date = A('Date applied')
   const status = A('Status')
   const verdict = A('Verdict')
-  const first = A('First reply')
+  const changed = A('Last status change')
   const ids = A('Application ID')
-  const total = `COUNTA(${ids})`
+  // Rows with an ID, less the header.
+  const total = `MAX(COUNTA(${ids})-1,0)`
+  const answered = `{${ANSWERED.map((s) => `"${s}"`).join(',')}}`
+  const isAnswered = `ISNUMBER(MATCH(${status},${answered},0))`
 
   const weekRows: (string | number)[][] = [['Week of', 'Applications']]
   for (let k = 11; k >= 0; k--) {
@@ -157,9 +182,10 @@ export function dashboardData(): { range: string; values: (string | number)[][] 
       range: `${DASH}!A6`,
       values: [
         ['Total applications', `=${total}`],
-        ['Response rate', `=IFERROR((${total}-COUNTIF(${status},"Applied"))/${total},0)`],
-        ['Interview rate', `=IFERROR((COUNTIF(${status},"Interview")+COUNTIF(${status},"Offer"))/${total},0)`],
-        ['Median days to first reply', `=IFERROR(MEDIAN(FILTER(${first}-${date},${first}<>"")),"")`],
+        // "We received your application" is automatic; it doesn't count as an answer.
+        ['Answered (not counting auto-replies)', `=IFERROR(SUM(COUNTIF(${status},${answered}))/${total},0)`],
+        ['Reached interview or offer', `=IFERROR((COUNTIF(${status},"Interview")+COUNTIF(${status},"Offer"))/${total},0)`],
+        ['Median days to an answer', `=IFERROR(MEDIAN(FILTER(IFERROR(${changed}-${date}),${isAnswered},ISNUMBER(${changed}),ISNUMBER(${date}))),"")`],
       ],
     },
     {
@@ -169,11 +195,11 @@ export function dashboardData(): { range: string; values: (string | number)[][] 
     {
       range: `${DASH}!A18`,
       values: [
-        ['Verdict', 'Applications', 'Response rate'],
+        ['Verdict', 'Applications', 'Answered'],
         ...(['Apply', 'Maybe', 'Skip'] as const).map((v) => [
           v,
           `=COUNTIF(${verdict},"${v}")`,
-          `=IFERROR(COUNTIFS(${verdict},"${v}",${status},"<>Applied")/COUNTIF(${verdict},"${v}"),"")`,
+          `=IFERROR(SUMPRODUCT((${verdict}="${v}")*${isAnswered})/COUNTIF(${verdict},"${v}"),"")`,
         ]),
       ],
     },
@@ -182,8 +208,8 @@ export function dashboardData(): { range: string; values: (string | number)[][] 
     {
       range: `${DASH}!A23`,
       values: [
-        ['Going stale (no reply in 30+ days)'],
-        [`=IFERROR(FILTER({${A('Company')},${A('Job title')},${date}},${status}="Applied",${first}="",${date}<>"",${date}<=TODAY()-30),"None")`],
+        ['Going stale (no answer in 30+ days)'],
+        [`=IFERROR(FILTER({${A('Company')},${A('Job title')},${date}},(${status}="Applied")+(${status}="Received"),ISNUMBER(${date}),${date}<=TODAY()-30),"None")`],
       ],
     },
   ]

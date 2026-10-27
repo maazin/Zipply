@@ -181,8 +181,14 @@ export function toISODate(v: string): string {
   }
   const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
   if (us) return `${us[3]}-${us[1].padStart(2, '0')}-${us[2].padStart(2, '0')}`
+  // "October 26, 2026" or "Oct 26, 2026"
+  const named = s.match(/^([A-Za-z]{3,9})\.? (\d{1,2}),? (\d{4})$/)
+  const month = named ? MONTHS.findIndex((m) => named[1].toLowerCase().startsWith(m)) : -1
+  if (named && month >= 0) return `${named[3]}-${String(month + 1).padStart(2, '0')}-${named[2].padStart(2, '0')}`
   return s
 }
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 
 export function todayISO(d = new Date()): string {
   const y = d.getFullYear()

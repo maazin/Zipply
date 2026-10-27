@@ -3,6 +3,7 @@
 // small pill appears next to the title, and on that job's card in the list.
 // Nothing is fetched in the background: only jobs you open are scored.
 import type { Posting, Verdict } from '@/shared/types'
+import { toISODate } from '@/shared/text'
 import { htmlToText, mergePosting } from './posting'
 
 export interface ListingSite {
@@ -17,6 +18,8 @@ export interface ListingSite {
   description: string
   /** For pages a selector can't read (Handshake's generated class names). */
   read?(doc: Document): { company?: string; location?: string; description?: string }
+  /** The date (ISO) the open job says you applied, if it says so. */
+  appliedOn?(doc: Document, jobId: string): string
   /** Job cards in the results list, and how to read a card's job ID. */
   cards: string
   cardId(card: Element): string
@@ -75,12 +78,52 @@ export const SITES: ListingSite[] = [
       if (expandDescription(pane)) return { company, description: '' }
       return { company, description: sectionText(pane, /^Job description$/i, /^(About the employer|Similar jobs)$/i) }
     },
+    // A job you applied to says "Applied on October 26, 2026" above its description.
+    appliedOn: (doc, jobId) => {
+      const pane = doc.querySelector('[data-hook="right-content"]')
+      // The pane still showing the last job while the next one loads.
+      const shown = pane?.querySelector('h1')?.closest('a')?.getAttribute('href')?.match(/\/jobs\/(\d+)/)?.[1]
+      if (!pane || (shown && shown !== jobId)) return ''
+      const h = Array.from(pane.querySelectorAll('h1, h2, h3, h4')).find((n) => /^Applied on /i.test(n.textContent?.trim() ?? ''))
+      const d = h ? toISODate(h.textContent!.trim().replace(/^Applied on /i, '')) : ''
+      return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : ''
+    },
     // data-hook="job-result-card | 11626853"; the company is a span, the title the first text div.
     cards: '[data-hook^="job-result-card"]',
     cardId: (c) => c.getAttribute('data-hook')?.match(/\d+/)?.[0] ?? '',
     cardTitle: (c) => Array.from(c.querySelectorAll('div')).find((d) => d.children.length === 0 && Boolean(d.textContent?.trim())) ?? null,
   },
 ]
+
+export interface AppliedJob {
+  posting: Posting
+  /** ISO date */
+  date: string
+}
+
+/** Handshake's list of your applications ("My jobs", /apps): one table row per application. */
+export function isHandshakeApplications(url: URL): boolean {
+  return /(^|\.)joinhandshake\.com$/.test(url.hostname) && /^\/(apps|applications|stu\/applications)\/?$/.test(url.pathname)
+}
+
+export function handshakeApplications(doc: Document): AppliedJob[] {
+  const out: AppliedJob[] = []
+  for (const row of Array.from(doc.querySelectorAll('tr'))) {
+    const link = row.querySelector<HTMLAnchorElement>('a[href*="/jobs/"]')
+    const id = link?.getAttribute('href')?.match(/\/jobs\/(\d+)/)?.[1]
+    if (!id) continue
+    const cell = (h: string) => row.querySelector(`td[headers="${h}"]`)?.textContent?.replace(/\s+/g, ' ').trim() ?? ''
+    // The link's label says it all too: "Employer, Avery. Title, Analyst. Location, …. Applied, 10/26/2026. Status, Applied"
+    const label = link!.getAttribute('aria-label') ?? ''
+    const part = (name: string) => label.match(new RegExp(`(?:^|\\. )${name}, (.+?)(?=\\. [A-Z][a-z]+, |$)`))?.[1]?.trim() ?? ''
+    const company = row.querySelector('td[headers="employerName"] p')?.textContent?.trim() || part('Employer')
+    const title = cell('title') || part('Title')
+    const date = toISODate(cell('applicationDate') || part('Applied'))
+    if (!company || !title || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue
+    out.push({ posting: mergePosting(`https://app.joinhandshake.com/jobs/${id}`, { title, company, location: cell('location') || part('Location'), jobId: id }), date })
+  }
+  return out
+}
 
 /** Jobs whose description was opened, so collapsing it again yourself sticks. */
 const expanded = new Set<string>()

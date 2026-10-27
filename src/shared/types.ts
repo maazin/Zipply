@@ -237,7 +237,7 @@ export interface Posting {
   workMode: WorkMode | ''
 }
 
-export type AtsName = 'Workday' | 'iCIMS' | 'Greenhouse' | 'Lever' | 'Ashby' | 'Oracle' | 'Other'
+export type AtsName = 'Workday' | 'iCIMS' | 'Greenhouse' | 'Lever' | 'Ashby' | 'Oracle' | 'Handshake' | 'Other'
 
 export type AppStatus = 'Applied' | 'Received' | 'Assessment' | 'Interview' | 'Offer' | 'Rejected'
 

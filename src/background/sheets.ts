@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import { getSettings, updateSettings } from '@/lib/repo'
 import { local, synced } from '@/lib/store'
 import { withLock } from '@/lib/lock'
+import { todayISO } from '@/shared/text'
 import { gfetch, HttpError, NotConnectedError, SCOPES } from './google'
 
 const BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
@@ -29,19 +30,28 @@ async function setupSheet(id: string): Promise<void> {
   await updateSettings({ sheetReady: true, sheetFormatVersion: SHEET_FORMAT })
 }
 
-/** Bump when a sheet created earlier needs a formatting fix (see repairFormats). */
-const SHEET_FORMAT = 1
-
 /**
- * Rows added before the fix were inserted under the header and lost the date
- * format, so dates showed as numbers like 46317. Re-apply it once.
+ * Bump when a sheet created earlier needs a fix (see repairFormats).
+ * 1: dates down the whole column.
+ * 2: dashboard formulas over whole columns. The old "A2:A" ranges had moved
+ *    down one row for every row inserted under the header, so they skipped those
+ *    applications; auto-replies no longer count as answers.
  */
+const SHEET_FORMAT = 2
+
 async function repairFormats(id: string): Promise<void> {
-  if ((await getSettings()).sheetFormatVersion >= SHEET_FORMAT) return
-  const meta = await gfetch<{ sheets: { properties: { sheetId: number; title: string } }[] }>(`${BASE}/${id}?fields=sheets.properties(sheetId,title)`, S)
-  const appsId = meta.sheets.find((s) => s.properties.title === APPS)?.properties.sheetId
-  if (appsId == null) return
-  await gfetch(`${BASE}/${id}:batchUpdate`, S, { method: 'POST', body: JSON.stringify({ requests: appsDateFormats(appsId) }) })
+  const version = (await getSettings()).sheetFormatVersion ?? 0
+  if (version >= SHEET_FORMAT) return
+  if (version < 1) {
+    // Rows inserted under the header lost the date format, so dates showed as numbers like 46317.
+    const meta = await gfetch<{ sheets: { properties: { sheetId: number; title: string } }[] }>(`${BASE}/${id}?fields=sheets.properties(sheetId,title)`, S)
+    const appsId = meta.sheets.find((s) => s.properties.title === APPS)?.properties.sheetId
+    if (appsId != null) await gfetch(`${BASE}/${id}:batchUpdate`, S, { method: 'POST', body: JSON.stringify({ requests: appsDateFormats(appsId) }) })
+  }
+  if (version < 2) {
+    // Rewrites the Dashboard tab's cells in place; its chart reads the same cells.
+    await gfetch(`${BASE}/${id}/values:batchUpdate`, S, { method: 'POST', body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: dashboardData() }) })
+  }
   await updateSettings({ sheetFormatVersion: SHEET_FORMAT })
 }
 
@@ -206,8 +216,10 @@ export async function readApplied(): Promise<AppliedEntry[]> {
 /** Reload the local already-applied cache from the sheet. */
 export async function refreshApplied(): Promise<AppliedEntry[]> {
   const fromSheet = await readApplied()
+  const queue = await db.queue.toArray()
+  await dateHandEdits(fromSheet, new Set(queue.filter((q) => q.op === 'status').map((q) => (q.payload as StatusUpdate).appId)))
   // Keep submissions still waiting in the retry queue.
-  const pending = (await db.queue.toArray()).filter((q) => q.op === 'append').map((q) => entryFromRecord(q.payload as JobRecord))
+  const pending = queue.filter((q) => q.op === 'append').map((q) => entryFromRecord(q.payload as JobRecord))
   const ids = new Set(fromSheet.map((r) => r.appId))
   const rows = [...fromSheet, ...pending.filter((p) => !ids.has(p.appId))]
   await db.transaction('rw', db.applied, async () => {
@@ -242,6 +254,29 @@ export class MissingRowError extends Error {
   constructor(appId: string) {
     super(`Application ${appId} is no longer in the sheet`)
     this.name = 'MissingRowError'
+  }
+}
+
+/**
+ * You changed a Status in the sheet yourself: date it, as Zipply does for the
+ * changes it makes, so the dashboard counts it. Only rows whose status differs
+ * from the last read while their dates didn't move, and none with an update of
+ * ours still waiting to be written.
+ */
+async function dateHandEdits(rows: AppliedEntry[], waiting: Set<string>): Promise<void> {
+  const before = new Map((await db.applied.toArray()).map((e) => [e.appId, e]))
+  const today = todayISO()
+  for (const r of rows) {
+    const prev = before.get(r.appId)
+    if (!prev || prev.status === r.status || waiting.has(r.appId) || r.lastStatusChange !== prev.lastStatusChange) continue
+    const answered = r.status !== 'Applied' && r.status !== 'Received'
+    const update = { appId: r.appId, status: r.status, firstReply: r.firstReply || (answered ? today : ''), lastStatusChange: today }
+    try {
+      await writeStatus(update)
+      Object.assign(r, { firstReply: update.firstReply, lastStatusChange: today })
+    } catch {
+      // Tried again on the next read.
+    }
   }
 }
 

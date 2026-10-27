@@ -13,7 +13,7 @@ import { fillPage, lastReports, refreshMissing, tracked, watchAnswers } from './
 import { genericPosting, mergePosting, postingFromJsonLd } from './posting'
 import { detectApplication } from './detect'
 import { sanitizeForm } from './capture'
-import { clearStale, decorateCards, isListingHost, listingPosting, pillFor, placePill, siteFor, type ListingScore } from './listings'
+import { clearStale, decorateCards, handshakeApplications, isHandshakeApplications, isListingHost, listingPosting, pillFor, placePill, siteFor, type ListingScore } from './listings'
 
 declare global {
   interface Window {
@@ -241,16 +241,30 @@ function main() {
   const asked = new Set<string>()
   let listingsOff = false
   let seenListing = ''
+  // Applications already reported from this page, so each is sent once.
+  const reportedApplied = new Set<string>()
+  function reportApplied(jobs: { posting: Posting; date: string }[]) {
+    const fresh = jobs.filter((j) => !reportedApplied.has(`${j.posting.jobId}|${j.date}`))
+    if (!fresh.length) return
+    fresh.forEach((j) => reportedApplied.add(`${j.posting.jobId}|${j.date}`))
+    send({ type: 'job:applied', jobs: fresh }).catch(() => fresh.forEach((j) => reportedApplied.delete(`${j.posting.jobId}|${j.date}`)))
+  }
   async function tickListings() {
     const url = new URL(location.href)
+    if (window !== window.top) return
+    // Handshake applies inside its own page, with no confirmation page to see:
+    // its list of your applications, and the "Applied on" line on a job, say so.
+    if (isHandshakeApplications(url)) return reportApplied(handshakeApplications(document))
     const site = siteFor(url)
-    if (!site || window !== window.top) return
+    if (!site) return
     const p = listingPosting(site, document, url)
     // The job you have open is the one "Apply" is for.
     if (p && seenListing !== p.jobId) {
       seenListing = p.jobId
       send({ type: 'job:seen', posting: p }).catch(() => undefined)
     }
+    const appliedOn = p ? site.appliedOn?.(document, p.jobId) : ''
+    if (p && appliedOn) reportApplied([{ posting: p, date: appliedOn }])
     if (listingsOff) return
     if (p && !scores.has(p.jobId) && !asked.has(p.jobId)) {
       asked.add(p.jobId)

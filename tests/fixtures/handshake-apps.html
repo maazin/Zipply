@@ -1,0 +1,18 @@
+<!doctype html><html><head><title>My jobs | Handshake</title></head><body>
+<!-- Modeled on app.joinhandshake.com/apps ("My jobs"): a table with one row per application, the link labelled with every column. Dates are filled in by the script: today, and 40 days ago. -->
+<h1>My jobs</h1>
+<table><tbody id="rows"></tbody></table>
+<script>
+  const iso = (d) => `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`
+  const today = iso(new Date())
+  const old = iso(new Date(Date.now() - 40 * 86400000))
+  const apps = [
+    [294284833, 11517102, 'Avery', 'Internet & Software', 'Analyst', 'Onsite, based in Miami, FL', today],
+    [294284834, 11601538, 'The Brite Group, Inc.', 'Computer Networking', 'AI/ML Engineer', 'Hybrid, based in Reston, VA', today],
+    [294284835, 11000001, 'Old Co', 'Retail', 'Data Analyst', 'Remote, based in United States', old],
+  ]
+  document.getElementById('rows').innerHTML = apps
+    .map(([row, id, co, ind, title, loc, date]) => `<tr data-hook="row-${row}"><td><a href="/jobs/${id}" aria-label="Employer, ${co}. Title, ${title}. Location, ${loc}. Applied, ${date}. Status, Applied" target="_blank" id="${row}"></a></td><td headers="employerName"><div><div><div><img alt=""></div><div><p>${co}</p><p data-hook="lockup-subheading">${ind}</p></div></div></div></td><td headers="title"><span>${title}</span></td><td headers="location"><span>${loc}</span></td><td headers="applicationDate"><span>${date}</span></td><td headers="status"><div><div data-indicator-tone="warning"></div><span>Applied</span></div></td></tr>`)
+    .join('')
+</script>
+</body></html>

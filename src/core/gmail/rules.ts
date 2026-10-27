@@ -13,9 +13,7 @@ export const PHRASES: { status: AppStatus; phrases: string[] }[] = [
   {
     status: 'Rejected',
     phrases: [
-      'not selected',
       'unable to proceed',
-      'other candidates',
       'moving forward with other',
       'decided not to continue',
       'decided not to move forward',
@@ -161,6 +159,9 @@ function atsCompany(from: string): string {
 export function classifyEmail(subject: string, body: string): AppStatus | null {
   const head = `${subject}\n${body.split(/\n/).slice(0, 25).join('\n')}`.slice(0, 4000)
   const sentences = head.split(/(?<=[.!?])\s+|\n+/)
+  // Rejections are worded many ways and usually open with "thank you for applying",
+  // which would otherwise read as Received.
+  if (sentences.some((s) => REJECTION.some((r) => r.test(s)) && !IF_NOT.test(s))) return 'Rejected'
   for (const { status, phrases } of PHRASES) {
     const hits = sentences.filter((s) => findBadWord(s, phrases))
     if (!hits.length) continue
@@ -170,6 +171,28 @@ export function classifyEmail(subject: string, body: string): AppStatus | null {
   }
   return null
 }
+
+/**
+ * Rejection wording beyond the fixed phrases, from real emails: "we will not be
+ * moving you forward", "won't be moving forward", "decided not to progress with
+ * your application", "to not move forward with your candidacy", "it is not a match
+ * for this particular role", "candidates who meet our requirements better", "the
+ * opening is no longer available".
+ */
+const REJECTION: RegExp[] = [
+  /(?:\bnot|n['’]t|\bunable to|\bno longer)\s+(?:(?:be|to|able|going|currently|further)\s+){0,3}(?:mov(?:e|ing)\s+(?:you\s+|your (?:application|candidacy|profile)\s+)?forward|proceed(?:ing)?\b|progress(?:ing)?\b|advanc(?:e|ing)\b)/i,
+  /\b(?:have|has|were|was|are|be) not (?:been )?selected\b/i,
+  /\bnot (?:a|the right|an? (?:good|strong|perfect))\s+(?:match|fit)\b/i,
+  /\b(?:forward|proceed|proceeding|continue|continuing|pursue|pursuing|selected|chosen|chose|go|going) (?:with )?(?:\w+ ){0,2}(?:other|another|a different|stronger|more qualified) (?:candidates?|applicants?|individuals?)\b/i,
+  /\b(?:with|selected|chosen|chose|hired|other)\s+(?:\w+\s+){0,2}candidates?\s+(?:who|whose)\b[^.]{0,80}\b(?:more closely|better|closer|best)\b/i,
+  /\b(?:position|role|opening|requisition|job|vacancy)\b[^.]{0,60}\b(?:no longer (?:available|open)|has been (?:filled|closed|cancell?ed)|is now (?:filled|closed))\b/i,
+  /\bwill not be (?:considered|offered)\b/i,
+  /\b(?:decided|chosen|chose) to (?:go|move|proceed|continue) (?:in a different direction|with (?:another|other|a different))\b/i,
+  /\bregret (?:to (?:inform|let you know|say|tell)|that we)\b/i,
+]
+
+/** "If you don't complete the assessment, we can't move forward": a warning, not a rejection. */
+const IF_NOT = /\b(if|unless|until|without|once|in order to)\b/i
 
 const CONDITIONAL = /\b(if|should|may|might|once|in the event|will be in touch|will reach out|reach out to you|will contact|we('|’)ll contact)\b/i
 
@@ -256,11 +279,21 @@ export function matchApplication(email: EmailParts, open: AppliedEntry[]): { ent
 }
 
 /** Gmail search query for the last 30 days (from gmail-sync.md step 3). */
-export function buildQuery(companies: string[], days = 30): string {
+export function buildQuery(companies: string[], days = 30, senders = true): string {
   // The bare name ("Flatpay", not "Flatpay ApS"), which is how emails write it.
-  const names = [...new Set(companies.map(normalizeCompany).filter((c) => c.length >= 2))].slice(0, 40).map((c) => `"${c}"`)
-  const senders = ATS_SENDER_DOMAINS.map((d) => `from:${d}`).join(' ')
-  const groups = [`{${senders}}`]
+  const names = [...new Set(companies.map(normalizeCompany).filter((c) => c.length >= 2))].map((c) => `"${c}"`)
+  const groups = senders ? [`{${ATS_SENDER_DOMAINS.map((d) => `from:${d}`).join(' ')}}`] : []
   if (names.length) groups.push(`{${names.join(' ')}}`)
   return `newer_than:${days}d -in:sent -in:drafts (${groups.join(' OR ')})`
+}
+
+/** Companies per search, so a long list of applications isn't cut off at the first 40. */
+const NAMES_PER_QUERY = 30
+
+/** One search for ATS senders and the first companies, then one per further batch of companies. */
+export function buildQueries(companies: string[], days = 30): string[] {
+  const names = [...new Set(companies.map(normalizeCompany).filter((c) => c.length >= 2))]
+  const out = [buildQuery(names.slice(0, NAMES_PER_QUERY), days)]
+  for (let i = NAMES_PER_QUERY; i < names.length; i += NAMES_PER_QUERY) out.push(buildQuery(names.slice(i, i + NAMES_PER_QUERY), days, false))
+  return out
 }

@@ -626,6 +626,50 @@ test('The panel follows you through Handshake listings', async () => {
   await page.close()
 })
 
+test('Logs applications Handshake says you made', async () => {
+  const applied = () =>
+    worker.evaluate(
+      () =>
+        new Promise<{ company: string; title: string; dateApplied: string }[]>((res) => {
+          const r = indexedDB.open('zipply')
+          r.onsuccess = () => {
+            const q = r.result.transaction('applied').objectStore('applied').getAll()
+            q.onsuccess = () => res(q.result)
+          }
+        }),
+    )
+  const titles = async () => (await applied()).map((a) => `${a.company}: ${a.title}`)
+  const today = await worker.evaluate(() => new Date().toLocaleDateString('en-CA'))
+
+  // A job you applied to inside Handshake shows "Applied on …" and nothing else.
+  await context.route('https://app.joinhandshake.com/**', (r) => r.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'handshake.html'), 'utf8') }))
+  const page = await context.newPage()
+  await page.goto('https://app.joinhandshake.com/job-search/333?page=1&per_page=25')
+  await expect.poll(titles, { timeout: 15_000 }).toContain('Umbrella: ML Engineer')
+  const row = (await applied()).find((a) => a.company === 'Umbrella')!
+  expect(row.dateApplied).toBe(today)
+  // Jobs you only looked at aren't logged.
+  await page.click('[data-hook="job-result-card | 222"]')
+  await page.waitForTimeout(2500)
+  expect(await titles()).not.toContain('Initech: Backend Engineer')
+  await page.close()
+
+  // Your list of applications fills in the ones that were missed, once each,
+  // and leaves out those from before you started tracking.
+  await context.unroute('https://app.joinhandshake.com/**')
+  await context.route('https://app.joinhandshake.com/**', (r) => r.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'handshake-apps.html'), 'utf8') }))
+  const apps = await context.newPage()
+  await apps.goto('https://app.joinhandshake.com/apps?page=1&per_page=25')
+  await expect.poll(titles, { timeout: 15_000 }).toEqual(expect.arrayContaining(['Avery: Analyst', 'The Brite Group, Inc.: AI/ML Engineer']))
+  await apps.reload()
+  await apps.waitForTimeout(2500)
+  const all = await titles()
+  expect(all.filter((t) => t === 'Avery: Analyst')).toHaveLength(1)
+  expect(all).not.toContain('Old Co: Data Analyst')
+  await apps.close()
+  await context.unroute('https://app.joinhandshake.com/**')
+})
+
 test('No console errors on extension pages', () => {
   expect(errors.filter((e) => !/favicon|ERR_FILE_NOT_FOUND/.test(e))).toEqual([])
 })

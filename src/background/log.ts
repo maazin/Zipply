@@ -69,7 +69,7 @@ export async function isDuplicate(p: Posting): Promise<AppliedEntry | null> {
   return null
 }
 
-export async function logJob(job: JobContext): Promise<LogResult> {
+export async function logJob(job: JobContext, dateApplied?: string): Promise<LogResult> {
   if (!job.posting.company && !job.posting.title) return { ok: false, error: "Couldn't read the company or title from this page." }
   await db.unlogged.delete(canonicalUrl(job.posting.url)).catch(() => undefined)
   const dup = await isDuplicate(job.posting)
@@ -77,6 +77,7 @@ export async function logJob(job: JobContext): Promise<LogResult> {
 
   // Logged later (from "Since last time"): the application date is when you filled it.
   const rec = recordFrom(job, job.filledAt && Date.now() - job.filledAt < 30 * 86_400_000 ? new Date(job.filledAt) : new Date())
+  if (dateApplied) Object.assign(rec, { dateApplied, lastStatusChange: dateApplied })
   const entry = entryFromRecord(rec)
   // Record locally first, so the already-applied check works even offline.
   await db.applied.put(entry)
@@ -89,4 +90,32 @@ export async function logJob(job: JobContext): Promise<LogResult> {
     await enqueue('append', rec, e instanceof Error ? e.message : String(e))
     return { ok: true, queued: true, appId: rec.appId, error: e instanceof NotConnectedError ? 'Saved; it will reach your sheet once Google is connected.' : undefined }
   }
+}
+
+/** With nothing logged yet, applications the site reports go back this far. */
+const BACKFILL_DAYS = 14
+
+let applying: Promise<unknown> = Promise.resolve()
+
+/**
+ * The site says you applied (Handshake applies inside its own page, with no
+ * confirmation page to catch). Logs each one not in the sheet yet, dated the day
+ * the site gives. Applications from before your first logged one are left out:
+ * they predate Zipply. One batch at a time, so a job is never logged twice.
+ */
+export function logApplied(jobs: { posting: Posting; date: string }[], ats: AtsName, contextFor: (p: Posting) => Promise<Partial<JobContext>>): Promise<{ logged: number }> {
+  const run = applying.then(async () => {
+    const entries = await db.applied.toArray()
+    const since = entries.map((e) => e.dateApplied).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort()[0] ?? todayISO(new Date(Date.now() - BACKFILL_DAYS * 86_400_000))
+    let logged = 0
+    for (const j of [...jobs].sort((a, b) => a.date.localeCompare(b.date))) {
+      if (j.date < since || (await isDuplicate(j.posting))) continue
+      const job = { ...bareContext(ats, j.posting.url, j.posting), ...(await contextFor(j.posting).catch(() => ({}))) }
+      const res = await logJob(job, j.date)
+      if (res.ok && !res.duplicate) logged++
+    }
+    return { logged }
+  })
+  applying = run.catch(() => undefined)
+  return run
 }
