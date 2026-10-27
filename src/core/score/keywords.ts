@@ -1,5 +1,5 @@
 import { escapeRegExp, keywordInText } from '@/shared/text'
-import { CASE_SENSITIVE, SKILLS, type SkillDef } from './skills'
+import { CASE_SENSITIVE, SKILLS, SOFT_WEIGHT, type SkillDef } from './skills'
 
 export type KeywordTier = 'required' | 'preferred' | 'other'
 
@@ -49,13 +49,21 @@ function variants(s: SkillDef): string[] {
   return [s.term, ...s.synonyms]
 }
 
+/** "retrieval-augmented generation" and "Retrieval augmented generation" are the same term. */
+function flexible(variant: string): string {
+  return escapeRegExp(variant)
+    .split(/[\s-]+/)
+    .join('[\\s-]+')
+}
+
 function countIn(variant: string, text: string): number {
   const cs = CASE_SENSITIVE.has(variant)
-  const left = /^[\p{L}\p{N}_]/u.test(variant) ? '(?<![\\p{L}\\p{N}_])' : ''
-  // Single letters ("C", "R") also refuse "C-suite", "R&D" and "C/C++".
-  const tail = variant.length === 1 ? '(?![\\p{L}\\p{N}_+#&/\\-])' : '(?![\\p{L}\\p{N}_+#])'
+  // Single letters ("C", "R") also refuse "C-suite", "R&D", "C/C++" and "D.C.".
+  const single = variant.length === 1
+  const left = /^[\p{L}\p{N}_]/u.test(variant) ? (single ? '(?<![\\p{L}\\p{N}_.])' : '(?<![\\p{L}\\p{N}_])') : ''
+  const tail = single ? '(?![\\p{L}\\p{N}_+#&/\\-])' : '(?![\\p{L}\\p{N}_+#])'
   const right = /[\p{L}\p{N}_]$/u.test(variant) ? tail : ''
-  const re = new RegExp(left + escapeRegExp(variant) + right, cs ? 'gu' : 'giu')
+  const re = new RegExp(left + flexible(variant) + right, cs ? 'gu' : 'giu')
   return (text.match(re) ?? []).length
 }
 
@@ -73,6 +81,7 @@ export function extractKeywords(posting: string): Keyword[] {
   const parts = splitPosting(posting)
   const found = new Map<string, Keyword>()
   for (const s of SKILLS) {
+    if (!s.tech && s.weight < SOFT_WEIGHT) continue
     let tier: KeywordTier | null = null
     let freq = 0
     for (const t of ['required', 'preferred', 'other'] as KeywordTier[]) {

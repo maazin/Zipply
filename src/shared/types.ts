@@ -88,6 +88,8 @@ export interface Filters {
   /** Verdict thresholds (match score). */
   applyAt: number
   maybeAt: number
+  /** Which scoring the thresholds were set for (see SCORE_VERSION). */
+  scoreVersion?: number
 }
 
 export interface Profile {
@@ -235,7 +237,7 @@ export interface Posting {
   workMode: WorkMode | ''
 }
 
-export type AtsName = 'Workday' | 'iCIMS' | 'Greenhouse' | 'Lever' | 'Ashby' | 'Other'
+export type AtsName = 'Workday' | 'iCIMS' | 'Greenhouse' | 'Lever' | 'Ashby' | 'Oracle' | 'Other'
 
 export type AppStatus = 'Applied' | 'Received' | 'Assessment' | 'Interview' | 'Offer' | 'Rejected'
 

@@ -2,6 +2,15 @@ import type { Profile, Settings } from './types'
 
 export const DECLINE = 'Decline to answer'
 
+/**
+ * Verdict thresholds, from scoring real postings: unrelated jobs land near 15,
+ * reasonable fits around 60, strong fits 70 and up.
+ */
+export const APPLY_AT = 65
+export const MAYBE_AT = 45
+/** Bumped when scoring changes enough to move the thresholds. */
+export const SCORE_VERSION = 2
+
 export function emptyProfile(): Profile {
   return {
     basics: {
@@ -48,8 +57,9 @@ export function emptyProfile(): Profile {
       companyBadWords: ['staffing agency', 'recruiting agency'],
       companyGoodWords: [],
       jobBadWords: ['10+ years', 'unpaid'],
-      applyAt: 70,
-      maybeAt: 50,
+      applyAt: APPLY_AT,
+      maybeAt: MAYBE_AT,
+      scoreVersion: SCORE_VERSION,
     },
     updatedAt: 0,
   }

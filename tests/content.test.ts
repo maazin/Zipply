@@ -7,6 +7,8 @@ import { fillPage } from '@/content/fill'
 import { pickAdapter } from '@/content/adapters'
 import { workday, postedOn } from '@/content/adapters/workday'
 import { mergePosting, postingFromJsonLd, genericPosting } from '@/content/posting'
+import { oracleJob } from '@/content/adapters/oracle'
+import { companyFromSiteName } from '@/shared/text'
 import { profile } from './helpers'
 
 const sent: unknown[] = []
@@ -146,5 +148,92 @@ describe('Fallback on a company-built form', () => {
     load('custom.html', 'https://careers.initech.com/jobs/42')
     const labels = collectFields(document).map((c) => c.desc.label || c.desc.nearbyText)
     expect(labels).toEqual(expect.arrayContaining(['Given name', 'E-mail address', 'Surname']))
+  })
+})
+
+describe('Oracle Recruiting Cloud', () => {
+  const ORACLE = 'https://globex.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/2107/apply/section/1'
+
+  it('reads yes/no pills, hidden radio labels and grid dropdowns', () => {
+    const url = load('oracle.html', ORACLE)
+    expect(pickAdapter(url, document).name).toBe('Oracle')
+    const fields = collectFields(document)
+    const auth = fields.find((f) => /legally authorized/.test(f.desc.label))!
+    expect(auth.desc).toMatchObject({ kind: 'radio', options: ['Yes', 'No'] })
+    expect(fields.find((f) => /sponsorship/.test(f.desc.label))?.desc.options).toEqual(['Yes', 'No'])
+    // The words are aria-hidden, but they're still what the option says.
+    expect(fields.find((f) => f.desc.label === 'Veteran Status')?.desc.options).toEqual(['I am a protected veteran', 'I am not a protected veteran', 'I do not wish to self-identify'])
+    expect(fields.find((f) => f.desc.label === 'Country')?.desc.kind).toBe('combobox')
+    // Not the honeypot, not the chat assistant.
+    expect(fields.some((f) => /honey|Ask Me/i.test(`${f.desc.label} ${f.desc.name} ${f.desc.ariaLabel}`))).toBe(false)
+  })
+
+  it('fills the form, pressing the pills and picking from the grid', async () => {
+    const url = load('oracle.html', ORACLE)
+    const reports = await fillPage(pickAdapter(url, document), ctx(), document)
+    expect(val('#firstName-7')).toBe('Ada')
+    expect(val('#lastName-8')).toBe('Lovelace')
+    expect(val('#email-9')).toBe('ada@example.com')
+    expect((document.querySelector('#country-10') as HTMLInputElement).dataset.selected).toBe('United States')
+    const pressed = (q: RegExp) =>
+      Array.from(document.querySelectorAll('ul[role="radiogroup"]'))
+        .find((u) => q.test(u.getAttribute('aria-label') ?? ''))!
+        .querySelector('[aria-checked="true"]')?.textContent?.trim()
+    expect(pressed(/authorized/)).toBe('Yes')
+    expect(pressed(/sponsorship/)).toBe('No')
+    expect((document.querySelector('#vet-3') as HTMLInputElement).checked).toBe(true)
+    // Terms stay yours to accept.
+    expect((document.querySelector('#af-checkbox-terms') as HTMLInputElement).checked).toBe(false)
+    // Work authorization answers are filled but flagged for you to check, as on every site.
+    expect(reports.filter((r) => r.status === 'filled' || r.status === 'low').length).toBe(7)
+  }, 20000)
+
+  it('reads the job from the site API, with the employer instead of the site name', async () => {
+    const url = load('oracle.html', ORACLE)
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true,
+      json: async () => ({
+        items: [
+          {
+            Id: '2107',
+            Title: 'Data Analyst',
+            PrimaryLocation: 'Tampa, FL, United States',
+            WorkplaceType: 'Hybrid',
+            JobSchedule: 'Full time',
+            ExternalPostedStartDate: '2026-10-21T08:36:47+00:00',
+            ExternalDescriptionStr: '<p>Turn data into decisions.</p>',
+            ExternalQualificationsStr: '<ul><li>SQL and Python</li><li>Tableau</li></ul>',
+          },
+        ],
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const p = await pickAdapter(url, document).posting!(document, url)
+      expect(String(fetchMock.mock.calls[0][0])).toBe(
+        'https://globex.fa.oraclecloud.com/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails?expand=all&onlyData=true&finder=ById;Id=%222107%22,siteNumber=CX_1001',
+      )
+      expect(p).toMatchObject({ title: 'Data Analyst', company: 'Globex', jobId: '2107', datePosted: '2026-10-21', workMode: 'hybrid', employmentType: 'Full time' })
+      expect(p.description).toContain('SQL and Python')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('finds the job on a company domain too', () => {
+    expect(oracleJob(new URL('https://careers.oracle.com/en/sites/jobsearch/job/309111'))).toEqual({ site: 'jobsearch', id: '309111' })
+    expect(oracleJob(new URL(ORACLE))).toEqual({ site: 'CX_1001', id: '2107' })
+    expect(oracleJob(new URL('https://globex.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs'))).toBeNull()
+  })
+})
+
+describe('career-site names', () => {
+  it('keeps the employer', () => {
+    expect(companyFromSiteName('JPMC Candidate Experience page')).toBe('JPMC')
+    expect(companyFromSiteName('Careers at Globex')).toBe('Globex')
+    expect(companyFromSiteName('Initech Careers')).toBe('Initech')
+    expect(companyFromSiteName('Globex - External Career Site')).toBe('Globex')
+    expect(companyFromSiteName('Career Education Corp')).toBe('Career Education Corp')
+    expect(companyFromSiteName('Careers')).toBe('Careers')
   })
 })

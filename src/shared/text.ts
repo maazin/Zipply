@@ -200,3 +200,17 @@ export function daysBetween(fromISO: string, to: Date = new Date()): number {
 export function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s
 }
+
+/**
+ * Career-site names stand in for the employer in many postings: "Acme
+ * Candidate Experience page", "Careers at Acme", "Acme Careers". Keep the
+ * company part; anything else is returned unchanged.
+ */
+export function companyFromSiteName(name: string): string {
+  const out = name
+    .trim()
+    .replace(/^(careers?|jobs?|work|join us)\s+(at|with)\s+/i, '')
+    .replace(/\s*[-|–:]?\s*(external\s+)?(candidate experience|careers? (site|page|portal|center|centre|hub)|job (site|board|portal)|careers?|jobs|talent community)(\s+(page|site|portal))?$/i, '')
+    .trim()
+  return out || name.trim()
+}

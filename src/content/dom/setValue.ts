@@ -3,6 +3,7 @@
 // Workday's live validation commits on blur (job_app_filler's finding).
 import { pickOption } from '@/core/matching/options'
 import { fromB64 } from '@/lib/crypto'
+import { isOn } from './collect'
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -53,10 +54,12 @@ export function setSelect(el: HTMLSelectElement, optionIndex: number) {
   commit(el)
 }
 
-export function setChecked(el: HTMLInputElement, checked: boolean) {
-  if (el.checked === checked) return
+export function setChecked(el: HTMLElement, checked: boolean) {
+  if (isOn(el) === checked) return
   // A real click toggles state and fires the events frameworks listen for.
   el.click()
+  // Buttons acting as radios or toggles keep their state in aria-checked / aria-pressed.
+  if (!(el instanceof HTMLInputElement)) return
   if (el.checked !== checked) {
     el.checked = checked
     fire(el, 'input')
@@ -64,14 +67,14 @@ export function setChecked(el: HTMLInputElement, checked: boolean) {
   }
 }
 
-export function setRadio(members: HTMLInputElement[], optionIndex: number) {
+export function setRadio(members: HTMLElement[], optionIndex: number) {
   const target = members[optionIndex]
-  if (target && !target.checked) setChecked(target, true)
+  if (target && !isOn(target)) setChecked(target, true)
 }
 
-export function setCheckboxGroup(members: HTMLInputElement[], optionIndex: number) {
+export function setCheckboxGroup(members: HTMLElement[], optionIndex: number) {
   const target = members[optionIndex]
-  if (target && !target.checked) setChecked(target, true)
+  if (target && !isOn(target)) setChecked(target, true)
 }
 
 function realClick(el: HTMLElement) {
@@ -87,7 +90,8 @@ function visibleOptions(doc: Document, owner: HTMLElement): HTMLElement[] {
   const listId = owner.getAttribute('aria-controls') || owner.getAttribute('aria-owns')
   const list = listId ? doc.getElementById(listId) : null
   const scope: ParentNode = list ?? doc
-  return Array.from(scope.querySelectorAll<HTMLElement>('[role="option"], [data-automation-id="promptOption"], .select__option, [class*="option" i][id*="option" i]')).filter(
+  // Oracle's lists are grids: each option is a gridcell.
+  return Array.from(scope.querySelectorAll<HTMLElement>('[role="option"], [role="gridcell"], [data-automation-id="promptOption"], .select__option, [class*="option" i][id*="option" i]')).filter(
     (o) => o.getClientRects().length > 0 || /jsdom/i.test(navigator.userAgent),
   )
 }

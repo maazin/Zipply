@@ -1,7 +1,7 @@
 // High-level storage API shared by the service worker and extension pages.
 // Profile, resumes, the answer bank and the Gemini key are encrypted.
 import type { AnswerBankEntry, Profile, ResumeContent, ResumeMeta, Settings, StoredResume } from '@/shared/types'
-import { DEFAULT_SETTINGS, emptyProfile, uid } from '@/shared/defaults'
+import { APPLY_AT, DEFAULT_SETTINGS, MAYBE_AT, SCORE_VERSION, emptyProfile, uid } from '@/shared/defaults'
 import { normalizeLabel } from '@/shared/text'
 import { upsertAnswer } from '@/core/answerBank'
 import { db } from './db'
@@ -28,8 +28,15 @@ export function updateSettings(patch: Partial<Settings>): Promise<Settings> {
 
 // ---------- Profile ----------
 
+/** Thresholds still at the old defaults move to the new ones; ones you chose stay. */
+function migrateFilters(f: Profile['filters']): Profile['filters'] {
+  if ((f.scoreVersion ?? 1) >= SCORE_VERSION) return f
+  const untouched = f.applyAt === 70 && f.maybeAt === 50
+  return { ...f, ...(untouched ? { applyAt: APPLY_AT, maybeAt: MAYBE_AT } : {}), scoreVersion: SCORE_VERSION }
+}
+
 /** Fill in fields added in later versions. */
-function migrate(p: Partial<Profile>): Profile {
+export function migrate(p: Partial<Profile>): Profile {
   const base = emptyProfile()
   return {
     ...base,
@@ -37,7 +44,7 @@ function migrate(p: Partial<Profile>): Profile {
     basics: { ...base.basics, ...p.basics },
     links: { ...base.links, ...p.links },
     answers: { ...base.answers, ...p.answers },
-    filters: { ...base.filters, ...p.filters },
+    filters: migrateFilters({ ...base.filters, scoreVersion: undefined, ...p.filters }),
     work: p.work ?? [],
     education: p.education ?? [],
     skills: p.skills ?? [],

@@ -2,7 +2,7 @@
 
 **Zip through job applications.** Zipply is a free Chrome extension that fills out job applications from one saved profile, tells you whether a job is worth applying to before you start, and keeps a Google Sheet of everything you've applied to, updated from your email.
 
-It works on Workday, iCIMS, Greenhouse, Lever, Ashby and companies' own application forms. It never submits anything for you.
+It works on Workday, iCIMS, Greenhouse, Lever, Ashby, Oracle Recruiting Cloud and companies' own application forms. It never submits anything for you.
 
 Built by [Maazin Shaikh](https://www.linkedin.com/in/maazin-shaikh).
 
@@ -246,7 +246,7 @@ Zipply notices the new build and reloads itself within about a minute, or as soo
 <details>
 <summary>How fields are matched</summary>
 
-1. **Site adapters.** Workday, iCIMS, Greenhouse, Lever and Ashby each have a module that knows their form markup, including Workday's repeating work-history and education sections.
+1. **Site adapters.** Workday, iCIMS, Greenhouse, Lever, Ashby and Oracle Recruiting Cloud each have a module that knows their form markup, including Workday's repeating work-history and education sections and Oracle's yes/no buttons and dropdowns.
 2. **Rules for any other form.** Each field is compared with each profile item using the field's autocomplete hint, label, aria-label, name, id, placeholder and nearby text, plus a dictionary of synonyms ("Surname" means "Last name"). All fields are matched at once, so two fields can't both claim your phone number.
 3. **Your answer bank.** Questions you've answered before are reused, and your corrections on a site come first.
 4. **AI mapping** for anything still unclear. It sees labels only and can answer only with a profile field name; your values are filled in locally.
@@ -265,7 +265,7 @@ Scoring runs in your browser with no AI calls.
 | --- | --- |
 | Match score | 55% keyword match, 25% skills coverage, 20% resume sections (Resume-Matcher's weights). Required skills count double. "JS" counts for "JavaScript", but "Java" never matches inside it. |
 | Can add / Real gap | A missing skill is **Can add** if it's in your profile or another resume, otherwise a **Real gap**. |
-| Verdict | Role fit, level, logistics and pay. **Apply** at 70+ with nothing failing, **Maybe** at 50 to 69 or with one warning, **Skip** below 50 or on a dealbreaker, such as no sponsorship when you need it or a blocked company. Thresholds are editable under **Filters**. |
+| Verdict | Role fit, level, logistics and pay. **Apply** at 65+ with nothing failing, **Maybe** at 45 to 64 or with one warning, **Skip** below 45 or on a dealbreaker, such as no sponsorship when you need it or a blocked company. Thresholds are editable under **Filters**. |
 | Best resume | The highest score wins. A tie goes to the resume covering more of the posting. Within 3 points is called a close call. |
 | Red flags | Posted 30+ days ago, the same title applied to within 90 days, no salary or a very wide range, a vague posting, contract wording when you want full-time. These never change the score. |
 | Already applied | Same company and job ID or posting address, or "possibly applied" for the same company and a near-identical title within 60 days. |

@@ -10,7 +10,7 @@ import { atsReport } from '@/core/score/atsCheck'
 import { db } from './db'
 import { getResumeTexts } from './repo'
 
-/** Fewer skills than this in a posting and its match score means nothing. */
+/** Fewer technical skills than this in a posting and its match score means nothing. */
 export const MIN_KEYWORDS = 3
 
 export interface ChecksResult {
@@ -34,7 +34,8 @@ export async function runChecks(posting: Posting, profile: Profile): Promise<Che
     return { ...m, tag: r.tag, name: r.name, ats: atsReport(r.content, keywords) }
   })
   const best = matches[0] ?? null
-  const thin = keywords.length < MIN_KEYWORDS
+  // Generic terms (Agile, SDLC) alone don't describe a job.
+  const thin = keywords.filter((k) => k.tech).length < MIN_KEYWORDS
   return {
     matches,
     best,

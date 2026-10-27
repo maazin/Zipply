@@ -22,7 +22,7 @@ export function Filters({ profile, update }: { profile: Profile; update: Update 
         <Field label="Words that override those" hint="If any appear, the company words above are ignored.">
           <TextArea rows={4} defaultValue={f.companyGoodWords.join('\n')} onBlur={(e) => set('companyGoodWords', lines(e.target.value))} />
         </Field>
-        <Field label="Apply at match score">
+        <Field label="Apply at match score" hint="Strong fits usually score 70 or more, reasonable ones about 60, unrelated jobs under 25.">
           <Input type="number" min={0} max={100} value={f.applyAt} onChange={(e) => set('applyAt', Number(e.target.value) || 0)} />
         </Field>
         <Field label="Maybe at match score" hint="Below this is a Skip.">

@@ -10,17 +10,32 @@ export type FieldEl = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
 export interface Collected {
   desc: FieldDescriptor
   el: FieldEl
-  /** Radio buttons or checkboxes in a group. */
-  members?: HTMLInputElement[]
+  /** Radio buttons or checkboxes in a group (inputs, or buttons acting as them). */
+  members?: HTMLElement[]
 }
 
 const clean = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim()
 
 function textOf(el: Element | null): string {
   if (!el) return ''
-  const clone = el.cloneNode(true) as HTMLElement
-  clone.querySelectorAll('input, select, textarea, script, style, [aria-hidden="true"], .visually-hidden-not-label').forEach((n) => n.remove())
-  return clean(clone.textContent)
+  const strip = (hidden: boolean) => {
+    const clone = el.cloneNode(true) as HTMLElement
+    clone.querySelectorAll(`input, select, textarea, script, style, .visually-hidden-not-label${hidden ? ', [aria-hidden="true"]' : ''}`).forEach((n) => n.remove())
+    return clean(clone.textContent)
+  }
+  // Oracle hides every word of a radio label from screen readers (the input has
+  // its own name); the visible text is still the label.
+  return strip(true) || strip(false)
+}
+
+/** A button that acts as a radio ("Yes" / "No" pills) or a toggle in a group. */
+const BUTTON_RADIO = '[role="radio"]:not(input)'
+const BUTTON_TOGGLE = '[role="list"] button[aria-pressed], [role="group"] button[aria-pressed]'
+
+/** Checked, for inputs and for buttons acting as them. */
+export function isOn(el: Element): boolean {
+  if (el instanceof HTMLInputElement) return el.checked
+  return el.getAttribute('aria-checked') === 'true' || el.getAttribute('aria-pressed') === 'true'
 }
 
 export function isVisible(el: Element): boolean {
@@ -89,7 +104,7 @@ export function nearbyText(el: Element): string {
   return ''
 }
 
-function groupLabel(first: HTMLInputElement): string {
+function groupLabel(first: HTMLElement): string {
   const group = first.closest('fieldset, [role="radiogroup"], [role="group"]')
   if (group) {
     const legend = group.querySelector('legend')
@@ -101,7 +116,8 @@ function groupLabel(first: HTMLInputElement): string {
   return nearbyText(option) || nearbyText(option.parentElement ?? option)
 }
 
-function optionLabel(input: HTMLInputElement): string {
+function optionLabel(input: HTMLElement): string {
+  if (!(input instanceof HTMLInputElement)) return textOf(input)
   return labelFor(input) || clean(input.value)
 }
 
@@ -136,6 +152,8 @@ function kindOf(el: Element): FieldKind | null {
     if (t === 'month') return 'date'
     return 'text'
   }
+  if (el.matches(BUTTON_RADIO)) return 'radio'
+  if (el.matches(BUTTON_TOGGLE)) return 'checkbox'
   if (el.getAttribute('contenteditable') === 'true') return 'textarea'
   if (el.matches('button[aria-haspopup="listbox"], [role="combobox"]:not(input)')) return 'combobox'
   return null
@@ -151,13 +169,13 @@ function currentValue(el: Element, kind: FieldKind): string {
   return (el as HTMLInputElement).value ?? ''
 }
 
-const SELECTOR = 'input, select, textarea, [contenteditable="true"], button[aria-haspopup="listbox"], [role="combobox"]:not(input)'
+const SELECTOR = `input, select, textarea, [contenteditable="true"], button[aria-haspopup="listbox"], [role="combobox"]:not(input), ${BUTTON_RADIO}, ${BUTTON_TOGGLE}`
 
 /** Collect every fillable field in `root`, grouping radios and checkboxes. */
 export function collectFields(root: ParentNode = document): Collected[] {
   const out: Collected[] = []
-  const radioGroups = new Map<string, HTMLInputElement[]>()
-  const checkGroups = new Map<string, HTMLInputElement[]>()
+  const radioGroups = new Map<string, HTMLElement[]>()
+  const checkGroups = new Map<string, HTMLElement[]>()
 
   for (const el of Array.from(root.querySelectorAll(SELECTOR))) {
     const kind = kindOf(el)
@@ -169,13 +187,14 @@ export function collectFields(root: ParentNode = document): Collected[] {
 
     if (kind === 'radio') {
       const input = el as HTMLInputElement
-      const key = input.name || input.closest('fieldset, [role="radiogroup"]')?.getAttribute('id') || `r${out.length}`
+      const box = input.closest('fieldset, [role="radiogroup"]')
+      const key = input.name || (box && (box.getAttribute('id') || `g:${stamp(box)}`)) || `r${out.length}`
       radioGroups.set(key, [...(radioGroups.get(key) ?? []), input])
       continue
     }
     if (kind === 'checkbox') {
       const input = el as HTMLInputElement
-      const group = input.closest('fieldset, [role="group"]')
+      const group = input.closest('fieldset, [role="group"], [role="list"]')
       const key = input.name && input.name.endsWith('[]') ? input.name : group ? `g:${stamp(group)}` : ''
       if (key) {
         checkGroups.set(key, [...(checkGroups.get(key) ?? []), input])
@@ -211,7 +230,7 @@ export function collectFields(root: ParentNode = document): Collected[] {
           zid: stamp(el),
           kind: 'checkbox',
           label: label || groupLabel(el),
-          name: el.name,
+          name: el.getAttribute('name') ?? '',
           idAttr: el.id,
           placeholder: '',
           ariaLabel: el.getAttribute('aria-label') ?? '',
@@ -219,7 +238,7 @@ export function collectFields(root: ParentNode = document): Collected[] {
           nearbyText: '',
           options: [],
           required: isRequired(el, label),
-          value: el.checked ? 'Yes' : '',
+          value: isOn(el) ? 'Yes' : '',
         },
         el,
       })
@@ -228,9 +247,9 @@ export function collectFields(root: ParentNode = document): Collected[] {
   return out
 }
 
-function groupField(members: HTMLInputElement[], kind: 'radio' | 'checkbox-group'): Collected {
+function groupField(members: HTMLElement[], kind: 'radio' | 'checkbox-group'): Collected {
   const first = members[0]
-  const container = first.closest('fieldset, [role="radiogroup"], [role="group"]') ?? first.parentElement!
+  const container = first.closest('fieldset, [role="radiogroup"], [role="group"], [role="list"]') ?? first.parentElement!
   const zid = stamp(container)
   members.forEach((m) => m.setAttribute('data-zipply-group', zid))
   const label = groupLabel(first)
@@ -239,16 +258,16 @@ function groupField(members: HTMLInputElement[], kind: 'radio' | 'checkbox-group
       zid,
       kind,
       label,
-      name: first.name,
+      name: first.getAttribute('name') ?? '',
       idAttr: container.id,
       placeholder: '',
       ariaLabel: container.getAttribute('aria-label') ?? '',
       autocomplete: '',
       nearbyText: '',
       options: members.map(optionLabel),
-      required: members.some((m) => m.required) || isRequired(container, label),
+      required: members.some((m) => (m as HTMLInputElement).required) || isRequired(container, label),
       value: members
-        .filter((m) => m.checked)
+        .filter(isOn)
         .map(optionLabel)
         .join(', '),
     },
@@ -264,8 +283,8 @@ export function findByZid(zid: string, root: Document = document): HTMLElement |
 
 /** Re-read a field's current value (after filling or user edits). */
 export function readValue(c: Collected): string {
-  if (c.members) return c.members.filter((m) => m.checked).map(optionLabel).join(', ')
-  if (c.desc.kind === 'checkbox') return (c.el as HTMLInputElement).checked ? 'Yes' : ''
+  if (c.members) return c.members.filter(isOn).map(optionLabel).join(', ')
+  if (c.desc.kind === 'checkbox') return isOn(c.el) ? 'Yes' : ''
   if (c.desc.kind === 'file') return (c.el as HTMLInputElement).files?.length ? (c.el as HTMLInputElement).files![0].name : ''
   return currentValue(c.el, c.desc.kind)
 }

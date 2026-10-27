@@ -50,7 +50,8 @@ function weightedMatch(keywords: Keyword[], text: string): { pct: number; matche
   const matched: Keyword[] = []
   const missing: Keyword[] = []
   for (const k of keywords) {
-    const w = k.tier === 'required' ? 2 : 1
+    // Required terms count double; generic ones ("Agile") count less than tools.
+    const w = (k.tier === 'required' ? 2 : 1) * (skillDef(k.term)?.weight ?? 1)
     total += w
     if (hasSkill(skillDef(k.term) ?? k.term, text)) {
       got += w

@@ -2,6 +2,7 @@
 // ATS publish it), then adapter selectors, then generic page text.
 import type { Posting } from '@/shared/types'
 import { parseSalary, workModeOf } from '@/core/score/postingSignals'
+import { companyFromSiteName } from '@/shared/text'
 
 type Json = Record<string, unknown>
 
@@ -64,7 +65,7 @@ export function postingFromJsonLd(doc: Document = document): Partial<Posting> | 
     const description = htmlToText(str(jp.description))
     return {
       title: str(jp.title),
-      company: str(org?.name),
+      company: companyFromSiteName(str(org?.name)),
       location: remote && !location ? 'Remote' : location,
       description,
       datePosted: str(jp.datePosted).slice(0, 10),
@@ -112,7 +113,7 @@ export function genericPosting(doc: Document = document): Partial<Posting> {
     const t = htmlToText(el.innerHTML)
     if (/responsibilit|requirement|qualification|what you/i.test(t) && t.length > best.length && t.length < 30000) best = t
   }
-  return { title: title.slice(0, 140), company: site !== title ? site : '', description: best }
+  return { title: title.slice(0, 140), company: site !== title ? companyFromSiteName(site) : '', description: best }
 }
 
 /** Fetch a same-origin page (e.g. the posting behind an /apply URL) and parse it. */

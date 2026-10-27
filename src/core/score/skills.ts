@@ -103,12 +103,20 @@ const ROWS: Row[] = [
   ['Computer vision', ['CV']],
   ['LLM', ['LLMs', 'Large language models']],
   ['Generative AI', ['GenAI', 'Gen AI']],
-  ['Prompt engineering'],
+  ['Prompt engineering', ['Prompt design', 'Prompting']],
   ['RAG', ['Retrieval augmented generation']],
   ['LangChain'],
+  ['LangGraph'],
+  ['AI agents', ['AI agent', 'Agentic', 'Agent frameworks', 'Agent framework', 'Agent-based', 'Multi-agent', 'LLM agents']],
+  ['Vector databases', ['Vector database', 'Vector search', 'pgvector', 'Pinecone', 'FAISS']],
+  ['Hugging Face', ['HuggingFace']],
+  ['MLOps'],
+  ['Feature engineering'],
+  ['Model evaluation', [], true, 0.8],
+  ['Hypothesis testing', [], true, 0.8],
   ['Statistics', ['Statistical analysis'], true, 0.8],
   ['A/B testing', ['AB testing', 'Experimentation']],
-  ['Data analysis', ['Data analytics'], true, 0.7],
+  ['Data analysis', ['Data analytics', 'Data analyst'], true, 0.7],
   ['Data visualization', ['Data viz'], true, 0.8],
   ['Data modeling', ['Data modelling']],
   ['ETL', ['ELT', 'Data pipelines']],
@@ -124,7 +132,7 @@ const ROWS: Row[] = [
   ['Oracle'],
   ['MongoDB', ['Mongo']],
   ['Redis'],
-  ['Elasticsearch', ['Elastic']],
+  ['Elasticsearch', ['ELK stack']],
   ['DynamoDB'],
   ['Cassandra'],
   ['Firebase'],
@@ -159,6 +167,7 @@ const ROWS: Row[] = [
   ['Security', ['Cybersecurity', 'Information security'], true, 0.7],
   // Practices and tools
   ['Agile', [], false, 0.6],
+  ['SDLC', ['Software development lifecycle', 'Software development life cycle'], false, 0.6],
   ['Scrum', [], false, 0.7],
   ['Kanban', [], false, 0.6],
   ['Jira'],
@@ -190,7 +199,10 @@ const ROWS: Row[] = [
   ['Collaboration', ['Teamwork'], false, 0.3],
 ]
 
+/** Traits every posting asks for and no keyword proves (communication, teamwork). Not scored. */
+export const SOFT_WEIGHT = 0.5
+
 export const SKILLS: SkillDef[] = ROWS.map(([term, synonyms = [], tech = true, weight = 1]) => ({ term, synonyms, tech, weight }))
 
 /** Single letters and short words that are too ambiguous unless written exactly. */
-export const CASE_SENSITIVE = new Set(['C', 'R', 'S3', 'CV', 'ML', 'TS', 'JS', 'REST', 'API', 'Elastic', 'Node', 'Shell', 'Spring', 'Rails', 'Express', 'Testing', 'Security', 'Mongo', 'Oracle', 'Lambda', 'Elixir', 'Swift'])
+export const CASE_SENSITIVE = new Set(['C', 'R', 'S3', 'CV', 'ML', 'TS', 'JS', 'REST', 'API', 'Node', 'Shell', 'Spring', 'Rails', 'Express', 'Testing', 'Security', 'Mongo', 'Oracle', 'Lambda', 'Elixir', 'Swift', 'RAG'])

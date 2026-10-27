@@ -8,6 +8,7 @@ import { parseSalary, yearsRequired, sponsorshipStance } from '@/core/score/post
 import { atsReport, columnSwitches } from '@/core/score/atsCheck'
 import { keywordInText, normalizeCompany } from '@/shared/text'
 import type { AppliedEntry, PageLayout } from '@/shared/types'
+import { migrate } from '@/lib/repo'
 import { posting, profile } from './helpers'
 
 const JD = `About the role
@@ -65,6 +66,42 @@ describe('keywords', () => {
     expect(sql.tier).toBe('required')
     expect(snow.tier).toBe('preferred')
     expect(sql.weight).toBeGreaterThan(snow.weight)
+  })
+})
+
+describe('keyword matching on real postings', () => {
+  it('reads hyphens and spaces the same way', () => {
+    expect(hasSkill('RAG', 'Implement retrieval-augmented generation patterns')).toBe(true)
+    expect(hasSkill('AI agents', 'Build agent-based systems')).toBe(true)
+    expect(hasSkill('Object-oriented programming', 'object oriented programming')).toBe(true)
+  })
+  it('ignores look-alikes', () => {
+    // "D.C." is a place, "Elastic Kubernetes Service" isn't Elasticsearch.
+    const terms = extractKeywords('Washington, D.C.: $150,000\nAmazon Elastic Kubernetes Service').map((k) => k.term)
+    expect(terms).not.toContain('C')
+    expect(terms).not.toContain('Elasticsearch')
+    expect(terms).toContain('Kubernetes')
+    expect(extractKeywords('Experience with C or C++.').map((k) => k.term)).toEqual(expect.arrayContaining(['C', 'C++']))
+  })
+  it('leaves out traits no keyword proves', () => {
+    const terms = extractKeywords('Strong communication, leadership and problem-solving skills. Python required.').map((k) => k.term)
+    expect(terms).toEqual(['Python'])
+  })
+  it('costs less to miss a generic term than a tool', () => {
+    const jd = 'Requirements:\n- Python\n- Agile'
+    const noAgile = computeMatch({ resumeId: 'a', resumeText: 'Skills\nPython', posting: jd, profile: profile() })
+    const noPython = computeMatch({ resumeId: 'b', resumeText: 'Skills\nAgile', posting: jd, profile: profile() })
+    expect(noAgile.keywordMatch).toBeGreaterThan(noPython.keywordMatch)
+  })
+})
+
+describe('verdict thresholds', () => {
+  it('moves the old defaults to the new ones and keeps ones you chose', () => {
+    const base = profile()
+    const at = (applyAt: number, maybeAt: number, scoreVersion?: number) => migrate({ ...base, filters: { ...base.filters, applyAt, maybeAt, scoreVersion } }).filters
+    expect(at(70, 50)).toMatchObject({ applyAt: 65, maybeAt: 45, scoreVersion: 2 })
+    expect(at(80, 60)).toMatchObject({ applyAt: 80, maybeAt: 60, scoreVersion: 2 })
+    expect(at(70, 50, 2)).toMatchObject({ applyAt: 70, maybeAt: 50 })
   })
 })
 

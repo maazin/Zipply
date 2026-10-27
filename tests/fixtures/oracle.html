@@ -1,0 +1,105 @@
+<!doctype html><html><head><title>Data Analyst - Globex Candidate Experience page Careers</title>
+<base href="/hcmUI/CandidateExperience/en/sites/CX_1001" data-apibaseurl="https://globex.fa.oraclecloud.com:443" data-sitenumber="CX_1001">
+</head><body>
+<!-- Modeled on Oracle Recruiting Cloud's apply flow (oj-hcm-ce main-minimal.js templates): input-row text fields, a cx-select combobox whose options are gridcells loaded after you type, yes/no questions as cx-select-pills (buttons with role="radio"), radio inputs whose label text is all aria-hidden, a honeypot, and the Digital Assistant chat box. -->
+<div class="app-wrapper">
+  <h1>Data Analyst</h1>
+  <div class="input-row input-row--text">
+    <label class="input-row__label input-row__label--required" for="firstName-7" id="lbl-firstName" aria-labelledby="labelText-firstName-7 instructionsText-firstName-7"><span class="input-row__linebreak" id="labelText-firstName-7">First Name</span><span class="input-row__label--required-star" aria-hidden="true"></span></label>
+    <div class="input-row__control-container"><input class="input-row__control" id="firstName-7" name="firstName" type="text" aria-required="true"></div>
+  </div>
+  <div class="input-row input-row--text">
+    <label class="input-row__label input-row__label--required" for="lastName-8" aria-labelledby="labelText-lastName-8 instructionsText-lastName-8"><span class="input-row__linebreak" id="labelText-lastName-8">Last Name</span><span class="input-row__label--required-star" aria-hidden="true"></span></label>
+    <div class="input-row__control-container"><input class="input-row__control" id="lastName-8" name="lastName" type="text" aria-required="true"></div>
+  </div>
+  <div class="input-row input-row--text">
+    <label class="input-row__label" for="email-9"><span class="input-row__linebreak">Email Address</span></label>
+    <div class="input-row__control-container"><input class="input-row__control" id="email-9" name="email" type="email"></div>
+  </div>
+  <div aria-hidden="true" class="input-row"><label for="honey-pot-1">honeypot</label><div class="input-row__control-container"><input id="honey-pot-1" name="honey-pot" type="text" tabindex="-1"></div></div>
+
+  <!-- cx-select: a combobox over a grid of options. -->
+  <div class="input-row input-row--has-picker">
+    <label class="input-row__label" for="country-10"><span class="input-row__linebreak">Country</span></label>
+    <div class="input-row__control-container reset-z-index">
+      <div class="input-field-container"><div class="input-field-container__left">
+        <input name="country" id="country-10" class="cx-select-input" type="text" role="combobox" aria-autocomplete="list" aria-haspopup="grid" aria-controls="country-10-listbox" aria-expanded="false">
+      </div></div>
+      <div class="cx-select__listbox" id="country-10-listbox-container"><div class="cx-select__list" role="status" id="country-10-listbox"></div></div>
+    </div>
+  </div>
+
+  <!-- cx-select-pills: a yes/no question. -->
+  <div class="input-row input-row--has-picker">
+    <label class="input-row__label input-row__label--required" for="q-auth"><span class="input-row__linebreak">Are you legally authorized to work in the United States?</span></label>
+    <div class="input-row__control-container">
+      <ul class="cx-select-pills-container" role="radiogroup" aria-label="Are you legally authorized to work in the United States?">
+        <li role="presentation"><button type="button" class="cx-select-pill-section" role="radio" aria-checked="false" tabindex="0"><span class="cx-select-pill-name"> Yes</span></button></li>
+        <li role="presentation"><button type="button" class="cx-select-pill-section" role="radio" aria-checked="false" tabindex="-1"><span class="cx-select-pill-name"> No</span></button></li>
+      </ul>
+    </div>
+  </div>
+  <div class="input-row input-row--has-picker">
+    <div class="input-row__control-container">
+      <ul class="cx-select-pills-container" role="radiogroup" aria-label="Will you now or in the future require sponsorship for employment visa status?">
+        <li role="presentation"><button type="button" class="cx-select-pill-section" role="radio" aria-checked="false"><span class="cx-select-pill-name"> Yes</span></button></li>
+        <li role="presentation"><button type="button" class="cx-select-pill-section" role="radio" aria-checked="false"><span class="cx-select-pill-name"> No</span></button></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- radio-form-element: hidden inputs, label text hidden from screen readers. -->
+  <div class="input-row input-row--radiogroup" role="radiogroup" aria-labelledby="lbl-veteran">
+    <label class="input-row__label" id="lbl-veteran"><span class="input-row__linebreak">Veteran Status</span></label>
+    <div class="input-row__control-container">
+      <input type="radio" class="input-row__hidden-control apply-flow-input-radio-control" id="vet-1" name="veteran" value="ORA_VET_1">
+      <label class="apply-flow-input-radio" for="vet-1"><span class="apply-flow-input-radio__button" aria-hidden="true"></span><span aria-hidden="true" class="apply-flow-input-radio__label" id="label-vet-1">I am a protected veteran</span></label>
+      <input type="radio" class="input-row__hidden-control apply-flow-input-radio-control" id="vet-2" name="veteran" value="ORA_VET_2">
+      <label class="apply-flow-input-radio" for="vet-2"><span class="apply-flow-input-radio__button" aria-hidden="true"></span><span aria-hidden="true" class="apply-flow-input-radio__label" id="label-vet-2">I am not a protected veteran</span></label>
+      <input type="radio" class="input-row__hidden-control apply-flow-input-radio-control" id="vet-3" name="veteran" value="ORA_VET_3">
+      <label class="apply-flow-input-radio" for="vet-3"><span class="apply-flow-input-radio__button" aria-hidden="true"></span><span aria-hidden="true" class="apply-flow-input-radio__label" id="label-vet-3">I do not wish to self-identify</span></label>
+    </div>
+  </div>
+
+  <div class="input-row input-row--checkbox" aria-labelledby="lbl-terms">
+    <input type="checkbox" class="input-row__hidden-control" id="af-checkbox-terms" aria-labelledby="lbl-terms">
+    <div class="input-row__control-container"><label class="apply-flow-input-checkbox" for="af-checkbox-terms"><span class="apply-flow-input-checkbox__button"></span><span id="lbl-terms">I agree with the terms and conditions</span></label></div>
+  </div>
+</div>
+<div class="oda-chat-user-input oda-chat-disabled" hidden><textarea id="oda-chat-user-text-input" role="combobox" aria-label="Ask Me Something"></textarea></div>
+<script>
+  // cx-select: options appear once you type, filtered by what you typed; clicking one sets the value.
+  const COUNTRIES = ['United Kingdom', 'United States', 'Uruguay']
+  const input = document.getElementById('country-10')
+  const list = document.getElementById('country-10-listbox')
+  input.addEventListener('input', () => {
+    const q = input.value.toLowerCase()
+    setTimeout(() => {
+      list.setAttribute('role', 'grid')
+      list.innerHTML = COUNTRIES.filter((c) => c.toLowerCase().includes(q))
+        .map((c, i) => `<div role="row"><div tabindex="-1" role="gridcell" id="country-10-listitem-${i}" class="cx-select__list-item"><div class="cx-select__list-item-container"><span class="cx-select__list-item--content">${c}</span></div></div></div>`)
+        .join('')
+      input.setAttribute('aria-expanded', 'true')
+      list.querySelectorAll('[role="gridcell"]').forEach((cell) =>
+        cell.addEventListener('click', () => {
+          input.value = cell.textContent.trim()
+          input.dataset.selected = input.value
+          list.innerHTML = ''
+          input.setAttribute('aria-expanded', 'false')
+        }),
+      )
+    }, 120)
+  })
+  // cx-select-pills: one pressed button per group.
+  document.querySelectorAll('.cx-select-pills-container').forEach((ul) =>
+    ul.querySelectorAll('button[role="radio"]').forEach((b) =>
+      b.addEventListener('click', () => {
+        ul.querySelectorAll('button[role="radio"]').forEach((o) => {
+          o.setAttribute('aria-checked', String(o === b))
+          o.classList.toggle('cx-select-pill-section--selected', o === b)
+        })
+      }),
+    ),
+  )
+</script>
+</body></html>
