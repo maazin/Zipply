@@ -554,7 +554,7 @@ function CoverLetter({ tabId }: { tabId: number }) {
         <span className="text-sm font-medium">Cover letter <span className="ml-1 text-xs text-warn">Draft</span></span>
         <button className="text-xs text-muted hover:text-ink" onClick={() => setText('')}>Discard</button>
       </div>
-      <TextArea value={text} onChange={(e) => setText(e.target.value)} rows={10} />
+      <TextArea value={text} onChange={(e) => setText(e.target.value)} rows={18} />
       {warnings.length > 0 && <p className="mt-2 text-xs text-warn">Check these, they aren't in your profile: {warnings.join('; ')}</p>}
       <div className="mt-2 flex gap-2">
         <Button size="sm" onClick={() => navigator.clipboard.writeText(text).then(() => setNote('Copied'))}>Copy</Button>

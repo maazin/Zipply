@@ -8,7 +8,7 @@ import { KIND_GUIDE, questionKind, WRITING_RULES } from './style'
 
 /** Wrap untrusted text so it reads as data, and neutralize our own delimiters inside it. */
 export function quoteData(tag: string, text: string, max = 12000): string {
-  const clean = truncate(text, max).replace(/<\/?(posting|question|field|profile|draft|samples|focus)[^>]*>/gi, '')
+  const clean = truncate(text, max).replace(/<\/?(posting|question|field|profile|draft|samples|focus|plan)[^>]*>/gi, '')
   return `<${tag}>\n${clean}\n</${tag}>`
 }
 
@@ -117,18 +117,87 @@ export function answerPrompt(question: string, posting: Posting | null, p: Profi
   }
 }
 
-export function coverLetterPrompt(posting: Posting, p: Profile): { system: string; prompt: string } {
+/** What the letter will argue, worked out before any sentence is written. */
+export interface LetterPlan {
+  /** The concrete thing in the posting that makes this job make sense for me. */
+  hook: string
+  /** Their requirement, and the real experience of mine that answers it. */
+  matches: { need: string; evidence: string }[]
+  /** Something they want that I lack, and the closest real experience. Empty if none. */
+  gap: string
+  /** What I'd want to take on first in this role. */
+  firstMonths: string
+}
+
+export function coverLetterPlanPrompt(posting: Posting, p: Profile): { system: string; prompt: string; schema: object } {
+  const str = { type: 'string' }
   return {
-    system: `You are drafting my cover letter. Hiring managers give it about thirty seconds, so every sentence has to earn its place and it must not read like a template or like AI. ${UNTRUSTED_NOTE} ${GROUNDING} Leave out the greeting, sign-off, name, addresses and contact details; I add those.\n\n${WRITING_RULES}`,
-    prompt: `${postingBlock(posting)}${focus(posting)}\n\n${quoteData('profile', redactedProfile(p), 6000)}${voice(p)}
+    system: `You plan a cover letter before it is written. ${UNTRUSTED_NOTE} ${GROUNDING}`,
+    prompt: `${postingBlock(posting)}${focus(posting)}\n\n${quoteData('profile', redactedProfile(p), 6000)}
 
-Write three short paragraphs, 150 to 250 words in all:
-1. Two or three sentences: what I do now and the specific reason this role${posting.company ? ` at ${posting.company}` : ''} makes sense for me, drawn from something concrete in <posting>. Don't open with my name, the job title as a formality, or "I am writing to apply".
-2. The two experiences from <profile> that best match what they require. For each: what I did, with which tools, and the result if <profile> states one. This is the longest paragraph.
-3. One or two plain sentences to close: what I'd want to dig into in this role, or a simple note that I'd like to talk. No stock closing lines.
-
-Return only the letter's three paragraphs.`,
+Work out:
+- hook: one concrete detail from <posting> (the product, the problem they solve, who they serve, a project or tool the team works on) and the real thing in <profile> it connects to. Not general praise of the company.
+- matches: the two or three requirements from <posting> that matter most and that <profile> really covers. For each, the evidence: which job or study, what I did myself, the tools, and the result if <profile> states one. Copy facts exactly; don't round them up.
+- gap: one important requirement <profile> doesn't cover, with the closest real experience. Empty if there is none worth mentioning.
+- firstMonths: what I would want to take on first in this role, tied to the work <posting> describes.`,
+    schema: {
+      type: 'object',
+      properties: {
+        hook: str,
+        matches: { type: 'array', items: { type: 'object', properties: { need: str, evidence: str }, required: ['need', 'evidence'] } },
+        gap: str,
+        firstMonths: str,
+      },
+      required: ['hook', 'matches', 'gap', 'firstMonths'],
+    },
   }
+}
+
+/** Words in the letter's body; the greeting and sign-off are added locally. */
+export const LETTER_WORDS = { min: 300, max: 380 }
+
+export function coverLetterPrompt(posting: Posting, p: Profile, plan?: LetterPlan | null): { system: string; prompt: string } {
+  const planBlock = plan
+    ? `\n\n${quoteData('plan', [`Hook: ${plan.hook}`, ...plan.matches.map((m) => `They need: ${m.need}\nMy evidence: ${m.evidence}`), plan.gap ? `Gap: ${plan.gap}` : '', `First months: ${plan.firstMonths}`].filter(Boolean).join('\n\n'), 4000)}\nFollow <plan>, but check every fact against <profile>; where they differ, <profile> wins.`
+    : ''
+  const at = posting.company ? ` at ${posting.company}` : ''
+  return {
+    system: `You are writing the body of my cover letter${at}. A hiring manager will read it to decide whether to call me, so it has to sound like a specific person who did specific work, not like a template or an AI. ${UNTRUSTED_NOTE} ${GROUNDING} Leave out the greeting, sign-off, my name and contact details; I add those.\n\n${WRITING_RULES}`,
+    prompt: `${postingBlock(posting)}${focus(posting)}\n\n${quoteData('profile', redactedProfile(p), 6000)}${planBlock}${voice(p)}
+
+Write four paragraphs, ${LETTER_WORDS.min} to ${LETTER_WORDS.max} words in all, separated by blank lines:
+
+1. Opening, three or four sentences. What I do now, and the concrete thing about this role${at} that made me apply (the hook). End with one plain sentence on what I'd bring. Don't open with my name, "I am writing", "I'm excited" or the job title as a formality.
+2. My strongest match, the longest paragraph. One experience told properly: the situation in a clause, what I did myself, the tools, and what came of it if <profile> says. Tie it to the requirement it answers, using their words where they're true for me.
+3. A second, different experience that covers their other requirements (a job, a project, or study). If there's a gap, address it here in one honest sentence by pointing to the closest thing I've done.
+4. Close, two or three sentences. What I'd want to dig into first in this role, then a plain line that I'd like to talk. No stock lines like "I look forward to hearing from you" or "Thank you for your consideration".
+
+Make it read like a person:
+- Don't start more than a third of the sentences with "I". Vary how sentences open and how long they are.
+- Concrete nouns (the product, the data, the tool, the people it was for) instead of adjectives about myself.
+- Name the role once, naturally. Don't repeat the company name in every paragraph.
+- Write it the way I'd explain it to the hiring manager in person.
+
+Return only the four paragraphs.`,
+  }
+}
+
+/** Ask for a longer version of a letter that came back short, with more real detail. */
+export function letterExpandPrompt(draft: string, posting: Posting, p: Profile): { system: string; prompt: string } {
+  return {
+    system: `You edit the body of a cover letter that came out too short. ${UNTRUSTED_NOTE} ${GROUNDING}\n\n${WRITING_RULES}`,
+    prompt: `${postingBlock(posting, 6000)}\n\n${quoteData('profile', redactedProfile(p), 6000)}\n\n${quoteData('draft', draft, 4000)}
+
+The draft is ${draft.split(/\s+/).filter(Boolean).length} words. Bring it to ${LETTER_WORDS.min} to ${LETTER_WORDS.max} words in four paragraphs by adding real detail from <profile> to the middle paragraphs: what I did myself, the tools, who it was for, and the result if <profile> states one. Keep everything that's already there and its tone. Add no padding, praise or new claims. Return only the four paragraphs.`,
+  }
+}
+
+/** The greeting and sign-off around the body, added here so my name never goes to a model. */
+export function frameLetter(body: string, posting: Posting, p: Profile): string {
+  const company = posting.company.trim()
+  const greeting = company ? `Dear ${company} Hiring Team,` : 'Dear Hiring Manager,'
+  const name = [p.basics.firstName, p.basics.lastName].filter(Boolean).join(' ').trim()
+  return `${greeting}\n\n${body.trim()}\n\nBest regards,${name ? `\n${name}` : ''}`
 }
 
 export function tailoringPrompt(posting: Posting, bullets: string, missing: string[]): { system: string; prompt: string } {
