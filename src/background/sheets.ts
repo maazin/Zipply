@@ -1,5 +1,6 @@
 import type { AppliedEntry, AppStatus, JobRecord } from '@/shared/types'
-import { APPS, COLUMNS, DASH, LAST_COL, appsDateFormats, dashboardData, dashboardRequests, entryFromRecord, parseRows, toRow, COL } from '@/core/sheets/layout'
+import { APPS, COLUMNS, LAST_COL, appsRequests, entryFromRecord, hex, parseRows, toRow, COL } from '@/core/sheets/layout'
+import { DASH, DASH_COLS, DASH_ROWS, dashboardCells, dashboardRequests, themeRequest } from '@/core/sheets/dashboard'
 import { db } from '@/lib/db'
 import { getSettings, updateSettings } from '@/lib/repo'
 import { local, synced } from '@/lib/store'
@@ -12,22 +13,46 @@ const S = [SCOPES.drive]
 
 /** Write the header row and the Dashboard tab. Safe to run again on the same sheet. */
 async function setupSheet(id: string): Promise<void> {
-  const meta = await gfetch<{ sheets: { properties: { sheetId: number; title: string } }[] }>(`${BASE}/${id}?fields=sheets.properties(sheetId,title)`, S)
-  const appsId = meta.sheets.find((s) => s.properties.title === APPS)?.properties.sheetId
-  const dashId = meta.sheets.find((s) => s.properties.title === DASH)?.properties.sheetId
-  if (appsId == null || dashId == null) throw new Error(`The sheet is missing its ${APPS} or ${DASH} tab`)
   await gfetch(`${BASE}/${id}/values:batchUpdate`, S, {
     method: 'POST',
-    body: JSON.stringify({
-      valueInputOption: 'USER_ENTERED',
-      data: [{ range: `${APPS}!A1:${LAST_COL}1`, values: [COLUMNS as unknown as string[]] }, ...dashboardData()],
-    }),
+    body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: [{ range: `${APPS}!A1:${LAST_COL}1`, values: [COLUMNS as unknown as string[]] }] }),
   })
-  await gfetch(`${BASE}/${id}:batchUpdate`, S, {
-    method: 'POST',
-    body: JSON.stringify({ requests: dashboardRequests(appsId, dashId) }),
-  })
+  await buildDashboard(id, true)
   await updateSettings({ sheetReady: true, sheetFormatVersion: SHEET_FORMAT })
+}
+
+/**
+ * Replace the Dashboard tab with a fresh one, cells included: in one batch, so a
+ * request Sheets rejects leaves the old tab as it was. The Applications tab's
+ * own formatting comes along when asked.
+ */
+async function buildDashboard(id: string, styleApps: boolean): Promise<void> {
+  const meta = await gfetch<{ sheets: { properties: { sheetId: number; title: string; index: number } }[] }>(`${BASE}/${id}?fields=sheets.properties(sheetId,title,index)`, S)
+  const apps = meta.sheets.find((s) => s.properties.title === APPS)?.properties
+  const dash = meta.sheets.find((s) => s.properties.title === DASH)?.properties
+  if (!apps) throw new Error(`The sheet is missing its ${APPS} tab`)
+  const used = new Set(meta.sheets.map((s) => s.properties.sheetId))
+  let dashId = 0
+  while (!dashId || used.has(dashId)) dashId = 1 + Math.floor(Math.random() * 2_000_000_000)
+  const requests = [
+    themeRequest(),
+    ...(styleApps ? appsRequests(apps.sheetId) : []),
+    ...(dash ? [{ deleteSheet: { sheetId: dash.sheetId } }] : []),
+    {
+      addSheet: {
+        properties: {
+          sheetId: dashId,
+          title: DASH,
+          index: dash?.index ?? meta.sheets.length,
+          gridProperties: { rowCount: DASH_ROWS, columnCount: DASH_COLS, hideGridlines: true },
+          tabColor: hex('#2a78d6'),
+        },
+      },
+    },
+    ...dashboardCells(dashId),
+    ...dashboardRequests(dashId),
+  ]
+  await gfetch(`${BASE}/${id}:batchUpdate`, S, { method: 'POST', body: JSON.stringify({ requests }) })
 }
 
 /**
@@ -38,22 +63,18 @@ async function setupSheet(id: string): Promise<void> {
  *    applications; auto-replies no longer count as answers.
  * 3: the share of applications answered counted only assessments (a list in
  *    COUNTIF needs ARRAYFORMULA in Sheets).
+ * 4: the redesigned Dashboard tab, and a styled Applications tab. Rebuilding
+ *    covers 1 to 3 as well.
+ * 5 to 7: dashboard chart colors, which come from the spreadsheet theme.
+ *    Rebuild only the Dashboard tab: the Applications tab's status colors would
+ *    otherwise be added twice.
  */
-const SHEET_FORMAT = 3
+const SHEET_FORMAT = 7
 
 async function repairFormats(id: string): Promise<void> {
   const version = (await getSettings()).sheetFormatVersion ?? 0
   if (version >= SHEET_FORMAT) return
-  if (version < 1) {
-    // Rows inserted under the header lost the date format, so dates showed as numbers like 46317.
-    const meta = await gfetch<{ sheets: { properties: { sheetId: number; title: string } }[] }>(`${BASE}/${id}?fields=sheets.properties(sheetId,title)`, S)
-    const appsId = meta.sheets.find((s) => s.properties.title === APPS)?.properties.sheetId
-    if (appsId != null) await gfetch(`${BASE}/${id}:batchUpdate`, S, { method: 'POST', body: JSON.stringify({ requests: appsDateFormats(appsId) }) })
-  }
-  if (version < 3) {
-    // Rewrites the Dashboard tab's cells in place; its chart reads the same cells.
-    await gfetch(`${BASE}/${id}/values:batchUpdate`, S, { method: 'POST', body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: dashboardData() }) })
-  }
+  await buildDashboard(id, version < 4)
   await updateSettings({ sheetFormatVersion: SHEET_FORMAT })
 }
 

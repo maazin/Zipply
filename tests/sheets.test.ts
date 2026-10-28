@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { COLUMNS, dashboardData, dashboardRequests, parseRows, toRow } from '@/core/sheets/layout'
+import { COLUMNS, appsRequests, parseRows, toRow } from '@/core/sheets/layout'
+import { DASH_COLS, DASH_ROWS, colName, dashboardCells, dashboardData, dashboardRequests } from '@/core/sheets/dashboard'
 import { recordFrom } from '@/background/log'
 import { posting } from './helpers'
 
@@ -33,28 +34,58 @@ describe('sheet layout', () => {
     // "We received your application" isn't an answer.
     expect(data.flatMap((d) => d.values.flat()).join(' ')).toContain('{"Assessment","Interview","Offer","Rejected"}')
     expect(cells).toContain('MEDIAN(FILTER(')
-    expect(cells).toContain('Going stale')
-    const cal = data.find((d) => d.range === 'Dashboard!I1')!
-    expect(cal.values).toHaveLength(8)
-    expect(cal.values[1]).toHaveLength(13)
-    // Every block names only a start cell, and no two blocks overlap.
+    expect(cells).toContain('SPARKLINE(')
+    expect(cells).toContain('What stands out')
+
+    const merges = (dashboardRequests(7) as { mergeCells?: { range: Record<string, number> } }[])
+      .flatMap((r) => (r.mergeCells ? [r.mergeCells.range] : []))
+      .map((m) => [m.startRowIndex, m.endRowIndex, m.startColumnIndex, m.endColumnIndex])
+    // Every block names only a start cell, no two blocks overlap, and none writes
+    // under a merged cell (Sheets hides it, and an empty string there blocks a spill).
     const used = new Set<string>()
+    const letters = Array.from({ length: DASH_COLS }, (_, i) => colName(i))
     for (const d of data) {
       const m = d.range.match(/^Dashboard!([A-Z]+)(\d+)$/)
       expect(m, d.range).not.toBeNull()
-      const col0 = m![1].charCodeAt(0) - 65
-      const row0 = Number(m![2])
+      const col0 = letters.indexOf(m![1])
+      const row0 = Number(m![2]) - 1
+      expect(col0).toBeGreaterThanOrEqual(0)
       d.values.forEach((row, r) =>
-        row.forEach((_, c) => {
-          const key = `${col0 + c}:${row0 + r}`
+        row.forEach((v, c) => {
+          const [y, x] = [row0 + r, col0 + c]
+          const key = `${x}:${y}`
           expect(used.has(key), `${d.range} overlaps at ${key}`).toBe(false)
+          expect(y).toBeLessThan(DASH_ROWS)
           used.add(key)
+          const under = merges.find(([r0, r1, c0, c1]) => y >= r0 && y < r1 && x >= c0 && x < c1 && (y !== r0 || x !== c0))
+          expect(under, `${d.range} writes under a merge at ${colName(x)}${y + 1}`).toBeUndefined()
+          // Formulas at least balance their brackets and quotes.
+          if (typeof v === 'string' && v.startsWith('=')) {
+            const bare = v.replace(/"[^"]*"/g, '')
+            expect((v.match(/"/g) ?? []).length % 2, v).toBe(0)
+            for (const [o, cl] of ['()', '{}']) expect(bare.split(o).length, v).toBe(bare.split(cl).length)
+          }
         }),
       )
     }
-    const reqs = JSON.stringify(dashboardRequests(0, 1))
-    expect(reqs).toContain('addChart')
+    // No two merges overlap either.
+    merges.forEach((a, i) =>
+      merges.slice(i + 1).forEach((b) => expect(a[0] < b[1] && b[0] < a[1] && a[2] < b[3] && b[2] < a[3], `${a} and ${b}`).toBe(false)),
+    )
+
+    const reqs = JSON.stringify(dashboardRequests(7))
+    expect(reqs.match(/addChart/g)).toHaveLength(2)
     expect(reqs).toContain('gradientRule')
+    expect(reqs).toContain('"hiddenByUser":true')
+    // The cells go in the same batch, at the same places.
+    const upd = dashboardCells(7) as { updateCells: { start: { rowIndex: number; columnIndex: number }; rows: { values: { userEnteredValue: object }[] }[] } }[]
+    expect(upd).toHaveLength(data.length)
+    expect(upd[0].updateCells.start).toEqual({ sheetId: 7, rowIndex: Number(data[0].range.match(/\d+$/)![0]) - 1, columnIndex: letters.indexOf(data[0].range.match(/!([A-Z]+)/)![1]) })
+    const helper = upd.find((u) => u.updateCells.start.columnIndex === letters.indexOf('AH') && u.updateCells.start.rowIndex === 1)
+    expect(Object.keys(helper!.updateCells.rows[0].values[0].userEnteredValue)).toEqual(['formulaValue'])
+    const apps = JSON.stringify(appsRequests(0))
+    expect(apps).toContain('frozenRowCount')
+    expect(apps).toContain('ONE_OF_LIST')
   })
 })
 

@@ -1,16 +1,12 @@
 /*
- * Sheet layout. The Dashboard tab's metrics are adapted from JobSync
- * (https://github.com/Gsync/jobsync) src/actions/dashboard (getJobsActivityForPeriod,
- * getActivityCalendarData), MIT. Modified: rebuilt as plain spreadsheet formulas
- * so the tab updates itself with no code. Staleness check from ai-job-search's
- * gmail-sync (MIT).
+ * Sheet layout: the Applications tab's columns and formatting. The Dashboard
+ * tab is in ./dashboard.
  */
 import type { AppliedEntry, AppStatus, JobRecord } from '@/shared/types'
 import { normalizeCompany, toISODate } from '@/shared/text'
 import { appliedKey } from '../score/applied'
 
 export const APPS = 'Applications'
-export const DASH = 'Dashboard'
 
 export const COLUMNS = [
   'Application ID',
@@ -78,7 +74,7 @@ export function entryFromRecord(r: JobRecord, row?: number): AppliedEntry {
   }
 }
 
-const STATUSES: AppStatus[] = ['Applied', 'Received', 'Assessment', 'Interview', 'Offer', 'Rejected']
+export const STATUSES: AppStatus[] = ['Applied', 'Received', 'Assessment', 'Interview', 'Offer', 'Rejected']
 
 /** Statuses typed by hand in other words ("rejected", "Declined", "Interviewing"). */
 const STATUS_WORDS: [RegExp, AppStatus][] = [
@@ -122,99 +118,23 @@ export function parseRows(values: string[][], firstRow = 2): AppliedEntry[] {
 /**
  * A whole column of the Applications tab. Not "B2:B": Sheets moves such a range
  * down whenever a row is inserted above it, and the dashboard then skipped every
- * application added that way. The header row is text, so the formulas ignore it.
+ * application added that way. The header row is text, so formulas skip it.
  */
-const A = (col: keyof typeof COL) => `${APPS}!${COL[col]}:${COL[col]}`
+export const A = (col: keyof typeof COL) => `${APPS}!${COL[col]}:${COL[col]}`
 
 /** A company answered: a decision or a next step, not an automatic "we received it". */
-const ANSWERED = ['Assessment', 'Interview', 'Offer', 'Rejected']
+export const ANSWERED: AppStatus[] = ['Assessment', 'Interview', 'Offer', 'Rejected']
 
-/**
- * Dashboard cells as [start cell, values] pairs, written with USER_ENTERED so the
- * formulas evaluate. Each block names only its top-left cell, so its size can't
- * disagree with the range (Sheets rejects the whole write if it does). Layout:
- *   A1 title, A3:B4 last 7 / 30 days (JobSync getJobsActivityForPeriod)
- *   A6:B9 response metrics, A11:B17 status funnel, A18:C21 results by verdict
- *   F1:G13 applications per week (12 weeks, charted)
- *   I1:U8 activity calendar, 7 days x 12 weeks (JobSync getActivityCalendarData)
- *   A24 going stale (30+ days, no answer)
- */
-export function dashboardData(): { range: string; values: (string | number)[][] }[] {
-  const date = A('Date applied')
-  const status = A('Status')
-  const verdict = A('Verdict')
-  const changed = A('Last status change')
-  const ids = A('Application ID')
-  // Rows with an ID, less the header.
-  const total = `MAX(COUNTA(${ids})-1,0)`
-  const answered = `{${ANSWERED.map((s) => `"${s}"`).join(',')}}`
-  const isAnswered = `ISNUMBER(MATCH(${status},${answered},0))`
+/** Status chips: background and text, the text dark enough to read on its chip. */
+export const CHIPS: [AppStatus, string, string][] = [
+  ['Offer', '#e3f4e3', '#006300'],
+  ['Interview', '#ebe8fb', '#4a3aa7'],
+  ['Assessment', '#fdf2d8', '#7a5200'],
+  ['Received', '#e6effb', '#1c5cab'],
+  ['Rejected', '#fbe4e4', '#a32929'],
+]
 
-  const weekRows: (string | number)[][] = [['Week of', 'Applications']]
-  for (let k = 11; k >= 0; k--) {
-    const start = `TODAY()-WEEKDAY(TODAY(),3)-${7 * k}`
-    weekRows.push([`=${start}`, `=COUNTIFS(${date},">="&(${start}),${date},"<"&(${start}+7))`])
-  }
-
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-  const calHeader: (string | number)[] = ['']
-  for (let k = 11; k >= 0; k--) calHeader.push(`=TODAY()-WEEKDAY(TODAY(),3)-${7 * k}`)
-  const calRows: (string | number)[][] = [calHeader]
-  days.forEach((d, di) => {
-    const row: (string | number)[] = [d]
-    for (let c = 0; c < 12; c++) {
-      const colLetter = String.fromCharCode('J'.charCodeAt(0) + c)
-      row.push(`=COUNTIF(${date},${colLetter}$1+${di})`)
-    }
-    calRows.push(row)
-  })
-
-  return [
-    { range: `${DASH}!A1`, values: [['Zipply dashboard']] },
-    {
-      range: `${DASH}!A3`,
-      values: [
-        ['Applications, last 7 days', `=COUNTIFS(${date},">="&(TODAY()-6))`],
-        ['Applications, last 30 days', `=COUNTIFS(${date},">="&(TODAY()-29))`],
-      ],
-    },
-    {
-      range: `${DASH}!A6`,
-      values: [
-        ['Total applications', `=${total}`],
-        // "We received your application" is automatic; it doesn't count as an answer.
-        // SUMPRODUCT, not SUM(COUNTIF(…,{list})): Sheets counts only the list's first item without ARRAYFORMULA.
-        ['Answered (not counting auto-replies)', `=IFERROR(SUMPRODUCT(--${isAnswered})/${total},0)`],
-        ['Reached interview or offer', `=IFERROR((COUNTIF(${status},"Interview")+COUNTIF(${status},"Offer"))/${total},0)`],
-        ['Median days to an answer', `=IFERROR(MEDIAN(FILTER(IFERROR(${changed}-${date}),${isAnswered},ISNUMBER(${changed}),ISNUMBER(${date}))),"")`],
-      ],
-    },
-    {
-      range: `${DASH}!A11`,
-      values: [['Status funnel', 'Count'], ...STATUSES.map((s) => [s, `=COUNTIF(${status},"${s}")`])],
-    },
-    {
-      range: `${DASH}!A18`,
-      values: [
-        ['Verdict', 'Applications', 'Answered'],
-        ...(['Apply', 'Maybe', 'Skip'] as const).map((v) => [
-          v,
-          `=COUNTIF(${verdict},"${v}")`,
-          `=IFERROR(SUMPRODUCT((${verdict}="${v}")*${isAnswered})/COUNTIF(${verdict},"${v}"),"")`,
-        ]),
-      ],
-    },
-    { range: `${DASH}!F1`, values: weekRows },
-    { range: `${DASH}!I1`, values: calRows },
-    {
-      range: `${DASH}!A23`,
-      values: [
-        ['Going stale (no answer in 30+ days)'],
-        [`=IFERROR(FILTER({${A('Company')},${A('Job title')},${date}},(${status}="Applied")+(${status}="Received"),ISNUMBER(${date}),${date}<=TODAY()-30),"None")`],
-      ],
-    },
-  ]
-}
+export const hex = (h: string) => ({ red: parseInt(h.slice(1, 3), 16) / 255, green: parseInt(h.slice(3, 5), 16) / 255, blue: parseInt(h.slice(5, 7), 16) / 255 })
 
 /** Date format for Date applied, First reply and Last status change, down the whole column. */
 export function appsDateFormats(appsSheetId: number): object[] {
@@ -228,27 +148,23 @@ export function appsDateFormats(appsSheetId: number): object[] {
   return [col(1, 2), col(13, 15)]
 }
 
-/** Formatting, the weekly chart and the calendar heat map (Sheets batchUpdate requests). */
-export function dashboardRequests(appsSheetId: number, dashSheetId: number): object[] {
-  const grid = (sheetId: number, r0: number, r1: number, c0: number, c1: number) => ({
-    sheetId,
-    startRowIndex: r0,
-    endRowIndex: r1,
-    startColumnIndex: c0,
-    endColumnIndex: c1,
-  })
-  const fmt = (range: object, numberFormat: object) => ({
-    repeatCell: { range, cell: { userEnteredFormat: { numberFormat } }, fields: 'userEnteredFormat.numberFormat' },
-  })
-  const bold = (range: object) => ({
-    repeatCell: { range, cell: { userEnteredFormat: { textFormat: { bold: true } } }, fields: 'userEnteredFormat.textFormat.bold' },
-  })
+/** The Applications tab: a frozen dark header, dates, a status dropdown and status colors. */
+export function appsRequests(appsSheetId: number): object[] {
+  const grid = (r0: number, r1: number, c0: number, c1: number) => ({ sheetId: appsSheetId, startRowIndex: r0, endRowIndex: r1, startColumnIndex: c0, endColumnIndex: c1 })
+  const status = COLUMNS.indexOf('Status')
   return [
-    bold(grid(appsSheetId, 0, 1, 0, COLUMNS.length)),
+    { updateSheetProperties: { properties: { sheetId: appsSheetId, gridProperties: { frozenRowCount: 1 } }, fields: 'gridProperties.frozenRowCount' } },
+    {
+      repeatCell: {
+        range: grid(0, 1, 0, COLUMNS.length),
+        cell: { userEnteredFormat: { backgroundColor: hex('#1a1a19'), verticalAlignment: 'MIDDLE', textFormat: { bold: true, foregroundColor: hex('#ffffff') } } },
+        fields: 'userEnteredFormat(backgroundColor,verticalAlignment,textFormat)',
+      },
+    },
     ...appsDateFormats(appsSheetId),
     {
       setDataValidation: {
-        range: grid(appsSheetId, 1, 5000, 12, 13),
+        range: grid(1, 5000, status, status + 1),
         rule: {
           condition: { type: 'ONE_OF_LIST', values: STATUSES.map((s) => ({ userEnteredValue: s })) },
           strict: false,
@@ -256,44 +172,17 @@ export function dashboardRequests(appsSheetId: number, dashSheetId: number): obj
         },
       },
     },
-    bold(grid(dashSheetId, 0, 1, 0, 1)),
-    bold(grid(dashSheetId, 10, 11, 0, 2)),
-    bold(grid(dashSheetId, 17, 18, 0, 3)),
-    bold(grid(dashSheetId, 22, 23, 0, 1)),
-    fmt(grid(dashSheetId, 6, 8, 1, 2), { type: 'PERCENT', pattern: '0%' }),
-    fmt(grid(dashSheetId, 18, 21, 2, 3), { type: 'PERCENT', pattern: '0%' }),
-    fmt(grid(dashSheetId, 1, 13, 5, 6), { type: 'DATE', pattern: 'mmm d' }),
-    fmt(grid(dashSheetId, 0, 1, 9, 21), { type: 'DATE', pattern: 'mmm d' }),
-    fmt(grid(dashSheetId, 23, 200, 2, 3), { type: 'DATE', pattern: 'yyyy-mm-dd' }),
-    {
+    ...CHIPS.map(([s, bg, fg], index) => ({
       addConditionalFormatRule: {
-        index: 0,
+        index,
         rule: {
-          ranges: [grid(dashSheetId, 1, 8, 9, 21)],
-          gradientRule: {
-            minpoint: { color: { red: 0.96, green: 0.97, blue: 0.97 }, type: 'NUMBER', value: '0' },
-            maxpoint: { color: { red: 0.13, green: 0.55, blue: 0.33 }, type: 'MAX' },
+          ranges: [grid(1, 5000, status, status + 1)],
+          booleanRule: {
+            condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: s }] },
+            format: { backgroundColor: hex(bg), textFormat: { foregroundColor: hex(fg) } },
           },
         },
       },
-    },
-    {
-      addChart: {
-        chart: {
-          spec: {
-            title: 'Applications per week',
-            basicChart: {
-              chartType: 'LINE',
-              legendPosition: 'NO_LEGEND',
-              axis: [{ position: 'BOTTOM_AXIS' }, { position: 'LEFT_AXIS' }],
-              domains: [{ domain: { sourceRange: { sources: [grid(dashSheetId, 1, 13, 5, 6)] } } }],
-              series: [{ series: { sourceRange: { sources: [grid(dashSheetId, 1, 13, 6, 7)] } }, targetAxis: 'LEFT_AXIS' }],
-            },
-          },
-          position: { overlayPosition: { anchorCell: { sheetId: dashSheetId, rowIndex: 9, columnIndex: 8 }, widthPixels: 560, heightPixels: 260 } },
-        },
-      },
-    },
-    { autoResizeDimensions: { dimensions: { sheetId: dashSheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 } } },
+    })),
   ]
 }
