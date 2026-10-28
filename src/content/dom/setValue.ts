@@ -109,36 +109,52 @@ async function waitFor<T>(fn: () => T | null | undefined, timeout = 1500, step =
 
 /**
  * Custom dropdowns (React-Select, Workday listboxes, Ashby comboboxes): open,
- * type to filter, then click the closest option. Returns the chosen label.
+ * pick the closest option, and type to search only when the list hasn't got it.
+ * Returns the chosen label.
  */
 export async function setCombobox(el: HTMLElement, value: string, opts: { boolean?: boolean } = {}): Promise<string | null> {
   const doc = el.ownerDocument
   const input = el instanceof HTMLInputElement ? el : el.querySelector<HTMLInputElement>('input')
-  realClick(input ?? el)
-  if (input) {
-    const set = nativeSetter(input)
-    set?.(value)
-    fire(input, 'input', { bubbles: true, data: value, inputType: 'insertText' } as InputEventInit)
-    fire(input, 'keydown', { key: 'a' } as KeyboardEventInit)
-  }
-  const options = await waitFor(() => {
-    const o = visibleOptions(doc, input ?? el)
+  const target = input ?? el
+  const listed = () => {
+    const o = visibleOptions(doc, target)
     return o.length ? o : null
-  })
-  if (!options) {
-    fire(input ?? el, 'keydown', { key: 'Escape' } as KeyboardEventInit)
+  }
+  const choose = (options: HTMLElement[]) => {
+    const labels = options.map((o) => (o.textContent ?? '').replace(/\s+/g, ' ').trim())
+    const pick = pickOption(labels, value, opts)
+    return pick.index < 0 ? null : { el: options[pick.index], label: labels[pick.index] }
+  }
+  const type = (text: string) => {
+    if (!input) return
+    nativeSetter(input)?.(text)
+    fire(input, 'input', { bubbles: true, data: text, inputType: 'insertText' } as InputEventInit)
+    if (text) fire(input, 'keydown', { key: text.slice(-1) } as KeyboardEventInit)
+  }
+
+  realClick(target)
+  // The whole list first. Typing the saved answer filters it, and other wording
+  // ("I don't" against "I do not") then left nothing to pick.
+  let choice = await waitFor(() => {
+    const o = listed()
+    return o && choose(o)
+  }, input ? 700 : 1500)
+  if (!choice && input) {
+    // Lists that only show what matches your typing (schools, cities).
+    type(value)
+    const options = await waitFor(listed)
+    choice = options && choose(options)
+  }
+  if (!choice) {
+    // Leave nothing half-typed behind: forms flag it as an invalid entry.
+    type('')
+    fire(target, 'keydown', { key: 'Escape' } as KeyboardEventInit)
     return null
   }
-  const labels = options.map((o) => (o.textContent ?? '').replace(/\s+/g, ' ').trim())
-  const pick = pickOption(labels, value, opts)
-  if (pick.index < 0) {
-    fire(input ?? el, 'keydown', { key: 'Escape' } as KeyboardEventInit)
-    return null
-  }
-  realClick(options[pick.index])
+  realClick(choice.el)
   await sleep(80)
   if (input) fire(input, 'blur', { bubbles: false })
-  return labels[pick.index]
+  return choice.label
 }
 
 /** Attach a file to an <input type=file>, the way a drop would. */

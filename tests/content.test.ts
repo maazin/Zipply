@@ -227,6 +227,50 @@ describe('Oracle Recruiting Cloud', () => {
   })
 })
 
+describe('searchable dropdowns', () => {
+  it('picks from the whole list, so other wording than your saved answer still matches', async () => {
+    const { setCombobox } = await import('@/content/dom/setValue')
+    // Like React-Select: typing shows only options containing what you typed.
+    document.body.innerHTML = `<div id="dd"><input role="combobox" aria-controls="list"></div><div id="list" role="listbox"></div>`
+    const input = document.querySelector('input')!
+    const all = ['Yes, I have a disability (or previously had a disability)', 'No, I do not have a disability and have not had one in the past', 'I do not want to answer']
+    let chosen = ''
+    const render = () => {
+      const q = input.value.toLowerCase()
+      document.getElementById('list')!.innerHTML = all.filter((o) => o.toLowerCase().includes(q)).map((o) => `<div role="option">${o}</div>`).join('')
+      document.querySelectorAll<HTMLElement>('[role=option]').forEach((o) => (o.onclick = () => (chosen = o.textContent!)))
+    }
+    input.addEventListener('mousedown', render)
+    input.addEventListener('input', render)
+    expect(await setCombobox(input, "No, I don't have a disability")).toMatch(/^No, I do not/)
+    expect(chosen).toMatch(/^No, I do not/)
+  })
+  it('types to search when the list starts empty, and clears what it typed when nothing matches', async () => {
+    const { setCombobox } = await import('@/content/dom/setValue')
+    document.body.innerHTML = `<input role="combobox" aria-controls="list"><div id="list" role="listbox"></div>`
+    const input = document.querySelector('input')!
+    const schools = ['University of South Florida', 'University of Florida']
+    input.addEventListener('input', () => {
+      const q = input.value.toLowerCase()
+      document.getElementById('list')!.innerHTML = q ? schools.filter((o) => o.toLowerCase().includes(q)).map((o) => `<div role="option">${o}</div>`).join('') : ''
+    })
+    expect(await setCombobox(input, 'University of South Florida')).toBe('University of South Florida')
+    expect(await setCombobox(input, 'Hogwarts')).toBeNull()
+    expect(input.value).toBe('')
+  })
+})
+
+describe('links', () => {
+  it('gets an https:// so forms accept it', async () => {
+    const { fullUrl } = await import('@/shared/profileKeys')
+    expect(fullUrl('linkedin.com/in/ada')).toBe('https://linkedin.com/in/ada')
+    expect(fullUrl('www.ada.dev')).toBe('https://www.ada.dev')
+    expect(fullUrl('https://github.com/ada')).toBe('https://github.com/ada')
+    expect(fullUrl('')).toBe('')
+    expect(fullUrl('ada lovelace')).toBe('ada lovelace')
+  })
+})
+
 describe('career-site names', () => {
   it('keeps the employer', () => {
     expect(companyFromSiteName('JPMC Candidate Experience page')).toBe('JPMC')

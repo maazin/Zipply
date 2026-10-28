@@ -183,13 +183,13 @@ export function valueFor(p: Profile, key: ProfileKey): string {
     case 'location':
       return [b.city, b.state].filter(Boolean).join(', ')
     case 'linkedin':
-      return p.links.linkedin
+      return fullUrl(p.links.linkedin)
     case 'github':
-      return p.links.github
+      return fullUrl(p.links.github)
     case 'portfolio':
-      return p.links.portfolio
+      return fullUrl(p.links.portfolio)
     case 'otherLink':
-      return p.links.other
+      return fullUrl(p.links.other)
     case 'currentCompany':
       return work?.company ?? ''
     case 'currentTitle':
@@ -238,4 +238,11 @@ export function valueFor(p: Profile, key: ProfileKey): string {
     case 'coverLetter':
       return ''
   }
+}
+
+/** Forms reject "linkedin.com/in/ada" as a URL: give a bare address its https://. */
+export function fullUrl(s: string | undefined): string {
+  const t = (s ?? '').trim()
+  if (!t || /^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return t
+  return /^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)+(\/\S*)?$/i.test(t) ? `https://${t}` : t
 }

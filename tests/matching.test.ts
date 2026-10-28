@@ -60,6 +60,25 @@ describe('pickOption', () => {
   it('refuses weak matches', () => {
     expect(pickOption(['Red', 'Green'], 'Bachelor').index).toBe(-1)
   })
+  // Standard answers against the wording real forms use.
+  const pick = (options: string[], value: string, boolean = false) => options[pickOption(options, value, { boolean }).index]
+  it('never takes "I don\'t wish to answer" for a "no"', () => {
+    const vet = ['Select One', 'I am not a protected veteran', 'I identify as one or more of the classifications of protected veteran', "I don't wish to answer"]
+    expect(pick(vet, 'I am not a protected veteran', true)).toBe('I am not a protected veteran')
+    expect(pick(['Yes, I have a disability (or previously had a disability)', 'No, I do not have a disability and have not had one in the past', 'I do not want to answer'], "No, I don't have a disability", true)).toMatch(/^No, I do not/)
+  })
+  it('reads "don\'t" as "do not"', () => {
+    expect(pick(['Yes, I have a disability (or previously had a disability)', 'No, I do not have a disability and have not had one in the past', 'I do not want to answer'], "No, I don't have a disability")).toMatch(/^No, I do not/)
+  })
+  it('keeps the "not"', () => {
+    expect(pick(['Not a Veteran', 'Protected Veteran', 'Decline to Self Identify'], 'I am not a protected veteran')).toBe('Not a Veteran')
+    expect(pick(['I am not a veteran', 'I identify as one or more of the classifications of protected veteran listed above', 'I do not wish to self-identify'], 'I am not a protected veteran')).toBe('I am not a veteran')
+    // A "not" in brackets isn't the answer's.
+    expect(pick(['Asian (Not Hispanic or Latino)', 'White (Not Hispanic or Latino)', 'I do not wish to answer'], 'Asian')).toBe('Asian (Not Hispanic or Latino)')
+  })
+  it('takes a bare "No" as no', () => {
+    expect(pick(['Hispanic or Latino', 'Not Hispanic or Latino', 'Decline To Self Identify'], 'No')).toBe('Not Hispanic or Latino')
+  })
 })
 
 describe('planFields', () => {
