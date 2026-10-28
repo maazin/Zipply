@@ -164,7 +164,7 @@ const JOB_ALERT = /\b(new jobs? (?:that )?match(?:es|ing)?|jobs? (?:matching|tha
 const BOARD_LISTING = /\b(?:apply to )?similar jobs\b|\bjobs you may (?:like|be interested in)\b/i
 
 /** Account mail from a careers site: a link to verify, a code, a password reset. */
-const ACCOUNT_MAIL = /\b(verify your (?:\w+ )?(?:account|email)|confirm your email|activate your (?:\w+ )?account|verification code|one[- ]time (?:pass)?code|otp code|reset your password|password reset|sign[- ]in code)\b/i
+const ACCOUNT_MAIL = /\b(verify your (?:\w+ )?(?:account|email)|confirm your (?:email|identity)|activate your (?:\w+ )?account|verification code|one[- ]time (?:pass)?code|otp code|reset your password|password reset|sign[- ]in code)\b/i
 
 /** Mail that says nothing about an application's status, for the rules or the AI. */
 export function isJobAlert(subject: string, body: string, from = ''): boolean {
@@ -204,11 +204,16 @@ export function classifyEmail(subject: string, body: string): AppStatus | null {
 const REJECTION: RegExp[] = [
   /(?:\bnot|n['’]t|\bunable to|\bno longer)\s+(?:(?:be|to|able|going|currently|further)\s+){0,3}(?:mov(?:e|ing)\s+(?:you\s+|your (?:application|candidacy|profile)\s+)?forward|proceed(?:ing)?\b|progress(?:ing)?\b|advanc(?:e|ing)\b)/i,
   /\b(?:have|has|were|was|are|be) not (?:been )?selected\b/i,
+  // "this time we did not select you for further consideration".
+  /\b(?:did|do|will|could|can)(?: not|n['’]t) (?:select|choose|shortlist|progress) you\b/i,
   /\bnot (?:a|the right|an? (?:good|strong|perfect))\s+(?:match|fit)\b/i,
   /\b(?:forward|proceed|proceeding|continue|continuing|pursue|pursuing|selected|chosen|chose|go|going) (?:with )?(?:\w+ ){0,2}(?:other|another|a different|stronger|more qualified) (?:candidates?|applicants?|individuals?)\b/i,
   /\b(?:with|selected|chosen|chose|hired|other)\s+(?:\w+\s+){0,2}candidates?\s+(?:who|whose)\b[^.]{0,80}\b(?:more closely|better|closer|best)\b/i,
   /\b(?:position|role|opening|requisition|job|vacancy)\b[^.]{0,60}\b(?:no longer (?:available|open)|has been (?:filled|closed|cancell?ed)|is now (?:filled|closed))\b/i,
   /\bwill not be (?:considered|offered)\b/i,
+  // "No interview for Data Scientist"; "we wish you much success in your career search".
+  /^no interview\b/i,
+  /\bwish you (?:\w+ ){0,3}(?:success|luck|the best)\b[^.]{0,40}\b(?:search|future|endeavou?rs?|career)\b/i,
   /\b(?:decided|chosen|chose) to (?:go|move|proceed|continue) (?:in a different direction|with (?:another|other|a different))\b/i,
   /\bregret (?:to (?:inform|let you know|say|tell)|that we)\b/i,
 ]
@@ -312,7 +317,7 @@ export function buildQuery(companies: string[], days = 30, senders = true): stri
   const names = [...new Set(companies.map(normalizeCompany).filter((c) => c.length >= 2))].map((c) => `"${c}"`)
   const groups = senders ? [`{${ATS_SENDER_DOMAINS.map((d) => `from:${d}`).join(' ')}}`] : []
   if (names.length) groups.push(`{${names.join(' ')}}`)
-  return `newer_than:${days}d -in:sent -in:drafts (${groups.join(' OR ')})`
+  return `newer_than:${days}d -in:sent -in:drafts -in:spam (${groups.join(' OR ')})`
 }
 
 /** Companies per search, so a long list of applications isn't cut off at the first 40. */
@@ -335,7 +340,7 @@ const NOT_EMPLOYER = /(^|\.)(gmail|googlemail|outlook|hotmail|live|yahoo|icloud|
  * Hiring and mailing services that send for an employer: their domain is not the
  * employer's name ("inbound@…", "kajabimail", "hibob", an assessment vendor).
  */
-const MAILERS = /(^|\.)(comeet|comeet-notifications|hibob|criteriacorp|kajabimail|mailgun|sendgrid|mandrillapp|amazonses|jobylon|join|homerun|freshteam|zohorecruit|manatal|dover|paylocity|paycomonline|ultipro|ukg|oraclecloud|taleo|successfactors|eightfold|phenom|avature|hackerrank|codility|codesignal|hirevue|mailchimp|hubspot)\.[a-z.]+$|^(inbound|mail|email|notifications?|noreply|no-reply)\./
+const MAILERS = /(^|\.)(comeet|comeet-notifications|hibob|criteriacorp|kajabimail|mailgun|sendgrid|mandrillapp|amazonses|jobylon|join|homerun|freshteam|zohorecruit|manatal|dover|paylocity|paycomonline|ultipro|ukg|oraclecloud|taleo|successfactors|eightfold|phenom|avature|factorialhr|arcoro|hackerrank|codility|codesignal|hirevue|mailchimp|hubspot)\.[a-z.]+$|^(inbound|mail|email|notifications?|noreply|no-reply)\./
 
 const ATS_NAMES: [RegExp, AtsName][] = [
   [/ashbyhq\.com$/, 'Ashby'],
@@ -348,8 +353,8 @@ const ATS_NAMES: [RegExp, AtsName][] = [
 
 /** "Thanks for applying to Boosters", "your application at Wayve - ML Engineer", "Jobs at Lenovo", "P&G Careers – Application Outcome". */
 const SUBJECT_COMPANY: RegExp[] = [
-  /\b(?:applying|applied|application|apply|interest)\s+(?:to|in|with)\s+(?:join(?:ing)?\s+)?(?:the\s+)?(.+?)\s*(?:[!|:–—?]|\s-\s|\s+(?:has|have|was|is|for|as)\b|$)/i,
-  /\bat\s+(.+?)\s*(?:[!|:–—?]|\s-\s|\s+(?:has|have|was|is|for|as)\b|$)/i,
+  /\b(?:applying|applied|application|apply|interest)\s+(?:to|in|with)\s+(?:join(?:ing)?\s+)?(?:the\s+)?(.+?)\s*(?:[!|:–—?]|\s-\s|\s+(?:has|have|was|is|as)\b|\s+for\s+(?:the|a|an|our|this|your)\b|$)/i,
+  /\bat\s+(.+?)\s*(?:[!|:–—?]|\s-\s|\s+(?:has|have|was|is|as)\b|\s+for\s+(?:the|a|an|our|this|your)\b|$)/i,
   /^(.+?)\s+(?:careers|recruiting|hiring)\b/i,
   /^(.+?)\s*\|\s*(?:thank|thanks|your application|application)/i,
   // "Full Stack Developer (Python) - PRODYNA": the role, then the company.
@@ -368,9 +373,14 @@ const TEAM_WORDS = /\s*\b(talent acquisition|hiring team|recruiting team|recruit
 /** About a job application, not a webinar or a grad-school "application". */
 const JOB_CONTEXT = /\b(your (?:job )?application|your candidacy|for applying|you applied|application (?:for|to|at|with)|(?:the|this) (?:[\w-]+ ){0,4}(?:position|role|opening)|job)\b/i
 
+/** A mailbox, not a name: "no-reply-…", "notifications". */
+const MAILBOX = /^(no-?reply|do-?not-?reply|noreply|notifications?|mailer|postmaster|bounce)\b/i
+
 function cleanCompany(s: string): string {
-  const c = s.replace(/[\s.,;'"“”’]+$/, '').replace(/^[\s'"“”]+/, '').trim()
-  return c.length >= 2 && c.length <= 40 && !NOT_COMPANY.test(c) && normalizeCompany(c).length >= 2 ? c : ''
+  // "the Center for Energy and Environment" is the Center for Energy and Environment.
+  // "Notion's" (as in "Notion's hiring team") is Notion.
+  const c = s.replace(/['’]s$/i, '').replace(/[\s.,;'"“”’-]+$/, '').replace(/^[\s'"“”]+/, '').replace(/^the\s+(?=[A-Z])/, '').trim()
+  return c.length >= 2 && c.length <= 40 && !NOT_COMPANY.test(c) && !MAILBOX.test(c) && normalizeCompany(c).length >= 2 ? c : ''
 }
 
 const capitalize = (s: string) => s.replace(/^\w/, (c) => c.toUpperCase())
@@ -390,27 +400,31 @@ export interface Discovered {
  * rejection whose sender or subject names the company. Null when it isn't clearly
  * an application email or the employer can't be told.
  */
-export function discoverApplication(email: EmailParts, status: AppStatus | null): Discovered | null {
-  if (status !== 'Received' && status !== 'Rejected') return null
+export function discoverApplication(email: EmailParts, status: AppStatus | null, how: { labeled?: boolean; sent?: boolean } = {}): Discovered | null {
+  // In your own "Applied" label, the label says it's an application; otherwise the email has to.
+  if (status !== 'Received' && status !== 'Rejected' && !(how.labeled && (status === null || status === 'Applied'))) return null
+  // An email you sent: the employer is who it went to (pass its To as "from").
   const domain = senderDomain(email.from)
   if (!domain || NOT_EMPLOYER.test(domain)) return null
   const head = `${email.subject}\n${email.body.split(/\n/).filter((l) => l.trim()).slice(0, 25).join('\n')}`
-  if (!JOB_CONTEXT.test(head) || NOT_APPLIED.test(email.subject)) return null
+  if ((!how.labeled && !JOB_CONTEXT.test(head)) || NOT_APPLIED.test(email.subject)) return null
   const mailer = MAILERS.test(domain)
 
   let company = ''
-  for (const re of SUBJECT_COMPANY) {
-    const m = email.subject.match(re)
-    if (m && (company = cleanCompany(m[1]))) break
-  }
+  // Your own subject line names the role and you ("Junior Engineer - Maazin Shaikh"), not the employer.
+  if (!how.sent)
+    for (const re of SUBJECT_COMPANY) {
+      const m = email.subject.match(re)
+      if (m && (company = cleanCompany(m[1]))) break
+    }
   const team = senderName(email.from)
-  if (!company && TEAM_WORDS.test(team)) company = cleanCompany(team.replace(TEAM_WORDS, ''))
+  if (!company && !how.sent && TEAM_WORDS.test(team)) company = cleanCompany(team.replace(TEAM_WORDS, ''))
   // A domain name ("homedepot") only when it's the employer's own.
   if (!company && !mailer) company = cleanCompany(capitalize(domainCompany(domain) || atsCompany(email.from)))
   if (!company) return null
 
-  const title = email.subject.match(/\b(?:applying|application|applied) for (?:the )?(.+?)(?:\s+(?:at|with|position|role)\b|[!|:–—]|\s-\s|$)/i)?.[1] ?? email.subject.match(/\sat\s+.+?\s-\s+(.+)$/i)?.[1] ?? ''
-  return { company, title: title.trim(), ats: ATS_NAMES.find(([re]) => re.test(domain))?.[1] ?? 'Other' }
+  const title = email.subject.match(/\b(?:applying|application|applied) for (?:the )?(?:(?:position|role) of )?(.+?)(?:\s+(?:at|with|position|role)\b|[!|:–—]|\s-\s|$)/i)?.[1] ?? email.subject.match(/\sat\s+.+?\s-\s+(.+)$/i)?.[1] ?? ''
+  return { company, title: how.sent ? '' : title.trim(), ats: ATS_NAMES.find(([re]) => re.test(domain))?.[1] ?? 'Other' }
 }
 
 /** One name is the other, or begins it ("Cleo" and "Cleo India"); for rows that might be the same employer. */
@@ -424,5 +438,15 @@ export function sameCompany(a: string, b: string): boolean {
 /** Confirmations and rejections from anyone, for applications the sheet doesn't have yet. */
 export function buildDiscoveryQuery(days: number): string {
   const phrases = ['thank you for applying', 'thanks for applying', 'your application', 'your candidacy', 'regret to inform', 'other candidates', 'thank you for your interest', 'application received']
-  return `newer_than:${days}d -in:sent -in:drafts -from:joinhandshake.com -from:linkedin.com {${phrases.map((p) => `"${p}"`).join(' ')}}`
+  return `newer_than:${days}d -in:sent -in:drafts -in:spam -from:joinhandshake.com -from:linkedin.com {${phrases.map((p) => `"${p}"`).join(' ')}}`
+}
+
+/** Your own labels for applications ("Applications/Applied", "Applied"). */
+export const APPLIED_LABEL = /(^|\/)\s*(applied|job applications?)\s*$/i
+
+/** Everything under those labels, your sent applications included. */
+export function buildLabelQuery(labels: string[], days: number): string {
+  // Gmail's form of a label name: "Applications/Applied" → applications-applied.
+  const names = labels.map((l) => `label:${l.toLowerCase().replace(/[\s/]+/g, '-')}`)
+  return `newer_than:${days}d -in:drafts -in:spam {${names.join(' ')}}`
 }

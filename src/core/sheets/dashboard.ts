@@ -8,11 +8,11 @@
  *   2-3    banner
  *   5-7    seven cards
  *   9-15   what stands out (sentences written by formulas)
- *   17-33  applications per week | where things stand (charts)
- *   35-42  from application to offer | which sites answer
- *   44-52  activity, last 13 weeks
- *   54-59  match score | verdict, against answers
- *   61-70  latest answers | waiting longest
+ *   17-37  where your applications went (a Sankey drawn by QuickChart)
+ *   39-55  applications per week | where things stand (charts)
+ *   57-64  from application to offer | which sites answer
+ *   66-74  activity, last 13 weeks
+ *   76-85  match score | latest answers
  */
 import { A, ANSWERED, CHIPS, STATUSES, hex } from './layout'
 
@@ -23,7 +23,7 @@ export interface Block {
 }
 
 export const DASH = 'Dashboard'
-export const DASH_ROWS = 80
+export const DASH_ROWS = 100
 export const DASH_COLS = 40
 /** Pixel width of each content column (B:O). */
 const COLW = 86
@@ -41,7 +41,6 @@ const HIDDEN = [16, 37] as const
 const WEEK = 16 // Q:S week label, answered, no answer yet
 const STAT = 20 // U:V status, count
 const LATEST = 23 // X:AA company, title, status, date
-const WAIT = 28 // AC:AF company, title, date applied, URL
 const SITES = 33 // AH:AK site, applications, answered, interview
 
 // Rows, 0-based.
@@ -51,14 +50,16 @@ const R = {
   card: 4,
   insightsHead: 8,
   insights: 9,
-  chartsHead: 16,
-  charts: 17,
+  flowHead: 16,
+  flow: 17,
+  flowRows: 20,
+  chartsHead: 38,
+  charts: 39,
   chartRows: 16,
-  t1Head: 34,
-  heatHead: 43,
-  t2Head: 53,
-  t3Head: 60,
-  foot: 71,
+  t1Head: 56,
+  heatHead: 65,
+  t2Head: 75,
+  foot: 87,
 }
 
 const C = {
@@ -84,23 +85,25 @@ const FONT = 'Inter'
 const bar = (cell: string, color = C.blue) => `=IF(${cell}="","",SPARKLINE(${cell},{"charttype","bar";"max",1;"color1","${color}"}))`
 
 /** Formulas over the Applications tab. */
-function metrics() {
+export function metrics() {
   const date = A('Date applied')
   const status = A('Status')
   const changed = A('Last status change')
   const ids = A('Application ID')
   const isAns = `ISNUMBER(MATCH(${status},{${ANSWERED.map((s) => `"${s}"`).join(',')}},0))`
   const isIntv = `((${status}="Interview")+(${status}="Offer"))`
-  // Rows with an ID, less the header. The header row is text, so the other formulas skip it.
-  const total = `MAX(COUNTA(${ids})-1,0)`
-  const hasRow = `(LEN(${ids})>0)*(ROW(${ids})>1)`
+  // Rows with a company, less the header: rows added outside Zipply may have no
+  // Application ID. The header row is text, so the other formulas skip it.
+  const company = A('Company')
+  const total = `MAX(COUNTA(${company})-1,0)`
+  const hasRow = `(LEN(${company})>0)*(ROW(${company})>1)`
   const old = `(TODAY()-30)`
   return {
     date,
     status,
     changed,
     ids,
-    company: A('Company'),
+    company,
     title: A('Job title'),
     ats: A('ATS'),
     url: A('Posting URL'),
@@ -127,7 +130,8 @@ function metrics() {
 const weekStart = (k: number) => `(TODAY()-WEEKDAY(TODAY(),3)-${7 * k})`
 
 /** Cells by position; written as runs of adjacent cells so no write covers a cell it doesn't set. */
-class Grid {
+export class Grid {
+  constructor(private tab: string) {}
   cells = new Map<string, Cell>()
   put(r: number, c: number, v: Cell) {
     this.cells.set(`${r},${c}`, v)
@@ -149,7 +153,7 @@ class Grid {
       cols.forEach((c, i) => {
         run.push(this.cells.get(`${r},${c}`)!)
         if (cols[i + 1] !== c + 1) {
-          out.push({ range: `${DASH}!${ref(r, start)}`, values: [run] })
+          out.push({ range: `${this.tab}!${ref(r, start)}`, values: [run] })
           start = cols[i + 1]
           run = []
         }
@@ -172,12 +176,10 @@ interface Table {
 const LEFT: Record<string, Table> = {
   funnel: { head: 'From application to offer', cols: [['Stage', 2], ['Count', 1], ['Of applied', 1], ['', 3]] },
   score: { head: 'Does the match score predict answers?', cols: [['Match score', 2], ['Applied', 1], ['Answered', 1], ['Interview', 1], ['', 2]] },
-  latest: { head: 'Latest answers', cols: [['Company', 2], ['Role', 3], ['Status', 1], ['Date', 1]] },
 }
 const RIGHT: Record<string, Table> = {
   sites: { head: 'Which sites answer', cols: [['Site', 2], ['Applied', 1], ['Answered', 1], ['Interview', 1], ['', 2]] },
-  verdict: { head: "Zipply's verdict, against answers", cols: [['Verdict', 2], ['Applied', 1], ['Answered', 1], ['Interview', 1], ['', 2]] },
-  waiting: { head: 'Waiting longest', cols: [['Company', 2], ['Role', 3], ['Applied', 1], ['Waiting', 1]] },
+  latest: { head: 'Latest answers', cols: [['Company', 2], ['Role', 3], ['Status', 1], ['Date', 1]] },
 }
 
 /** Start column of each column of a table. */
@@ -219,15 +221,51 @@ function insights(m: ReturnType<typeof metrics>): string[] {
     `=IF(${m.total}=0,"",LET(a,${m.ans},i,${m.intv},o,${m.offers},"Companies answered "&a&" of your "&${m.total}&" applications ("&TEXT(a/${m.total},"0%")&"). "&IF(i=0,"None has reached an interview yet.",i&IF(i=1," has"," have")&" reached the interview stage"&IF(o>0,", and "&o&IF(o=1," became an offer"," became offers"),"")&".")))`,
     `=IFERROR(LET(t,SORT(FILTER(${sites},${siteCol(1)}>=3,${siteCol(0)}<>"Other"),3,FALSE,2,FALSE),n,ROWS(t),IF(INDEX(t,1,3)=0,"No site has answered yet among those you've used 3+ times.","Applications through "&INDEX(t,1,1)&" get answered most often ("&TEXT(INDEX(t,1,3),"0%")&" of "&INDEX(t,1,2)&")"&IF(n>1,", "&INDEX(t,n,1)&" least ("&TEXT(INDEX(t,n,3),"0%")&" of "&INDEX(t,n,2)&")","")&".")),"Once you've used a site 3+ times, this says which ones answer most.")`,
     `=LET(s,${m.score},hi,COUNTIFS(s,">=70"),lo,COUNTIFS(s,"<70"),IF(OR(hi<3,lo<3),"With 3+ applications on each side of a 70 match score, this compares how often each gets answered.",LET(h,SUMPRODUCT(ISNUMBER(s)*(s>=70)*${m.isAns})/hi,l,SUMPRODUCT(ISNUMBER(s)*(s<70)*${m.isAns})/lo,"Jobs with a match score of 70+ were answered "&TEXT(h,"0%")&" of the time, against "&TEXT(l,"0%")&" below 70"&IF(h>l,", so the higher scores have paid off.",IF(h<l,", so lower-scored jobs have done better so far.",".")))))`,
-    `=LET(n,${m.stale},IF(n=0,"Nothing has gone 30+ days without an answer.",n&IF(n=1," application has"," applications have")&" gone 30+ days without an answer. Waiting longest, below, is a good place to follow up or move on."))`,
+    `=LET(n,${m.stale},IF(n=0,"Nothing has gone 30+ days without an answer.",n&IF(n=1," application has"," applications have")&" gone 30+ days without an answer: worth a follow-up, or letting go."))`,
     `=IF(${latest(0)}="","No answers yet. Zipply reads your Gmail and updates statuses as replies arrive.","Latest answer: "&TRIM(${latest(0)})&IF(${latest(1)}="",""," ("&TRIM(${latest(1)})&")")&" "&SWITCH(${latest(2)},"Rejected","passed","Interview","asked to interview you","Assessment","sent an assessment","Offer","made you an offer","replied")&" on "&TEXT(${latest(3)},"mmm d")&".")`,
   ]
+}
+
+/**
+ * The Sankey: Sheets has no such chart, so QuickChart draws it from an IMAGE()
+ * formula. Only the counts leave Google, in the chart's address; it redraws
+ * whenever they change. Applied flows to how far each application got (heard
+ * back, an automatic reply only, no reply yet, ghosted), and heard back on to the answer.
+ */
+const SANKEY: { key: string; from: string; label: string; count: (m: ReturnType<typeof metrics>) => string; color: string }[] = [
+  { key: 'h', from: 'a', label: 'Heard back', count: (m) => m.ans, color: '#1c5cab' },
+  { key: 'r', from: 'a', label: 'Auto-reply only', count: (m) => `COUNTIF(${m.status},"Received")`, color: '#86b6ef' },
+  { key: 'n', from: 'a', label: 'No reply', count: (m) => `COUNTIF(${m.status},"Applied")`, color: '#c3c2b7' },
+  { key: 'g', from: 'a', label: 'Ghosted', count: (m) => `COUNTIF(${m.status},"Ghosted")`, color: '#898781' },
+  { key: 'x', from: 'h', label: 'Rejected', count: (m) => `COUNTIF(${m.status},"Rejected")`, color: '#d03b3b' },
+  { key: 's', from: 'h', label: 'Assessment', count: (m) => `COUNTIF(${m.status},"Assessment")`, color: '#eda100' },
+  { key: 'i', from: 'h', label: 'Interview', count: (m) => `COUNTIF(${m.status},"Interview")`, color: '#6250d6' },
+  { key: 'o', from: 'h', label: 'Offer', count: (m) => `COUNTIF(${m.status},"Offer")`, color: '#0ca30c' },
+]
+const SANKEY_W = 14 * COLW
+const SANKEY_ROWH = 22
+
+function sankeyImage(m: ReturnType<typeof metrics>): string {
+  const colors = `({a:'#52514e',${SANKEY.map((s) => `${s.key}:'${s.color}'`).join(',')}})`
+  const columns = `{a:0,${SANKEY.map((s) => `${s.key}:${s.from === 'a' ? 1 : 2}`).join(',')}}`
+  // A flow of 0 is left out: the library draws it as a stray line.
+  const flows = SANKEY.map((s) => `IF(${s.count(m)}>0,"{from:'${s.from}',to:'${s.key}',flow:"&${s.count(m)}&"},","")`).join('&')
+  const share = (f: string) => `TEXT(${f}/MAX(${m.total},1),"0%")`
+  const labels = SANKEY.map((s) => `"${s.key}:'${s.label} "&${s.count(m)}&" ("&${share(s.count(m))}&")',"`).join('&')
+  const config = [
+    `"{type:'sankey',data:{datasets:[{data:["`,
+    flows,
+    `"],colorMode:'to',colorFrom:(c)=>${colors}[c.dataset.data[c.dataIndex].from],colorTo:(c)=>${colors}[c.dataset.data[c.dataIndex].to],column:${columns},labels:{a:'Applied "&${m.total}&"',"`,
+    labels,
+    `"},size:'max',nodeWidth:14,nodePadding:18,font:{size:15},color:'#0b0b0b'}]},options:{layout:{padding:12}}}"`,
+  ].join('&')
+  return `=IMAGE("https://quickchart.io/chart?v=3&bkg=white&w=${SANKEY_W}&h=${R.flowRows * SANKEY_ROWH}&c="&ENCODEURL(${config}),1)`
 }
 
 /** Dashboard cells, written with USER_ENTERED so the formulas evaluate. */
 export function dashboardData(): Block[] {
   const m = metrics()
-  const g = new Grid()
+  const g = new Grid(DASH)
 
   g.put(R.title, B, 'Job search')
   g.put(R.sub, B, `="As of "&TEXT(TODAY(),"dddd, mmmm d")&"  ·  "&${m.total}&" applications tracked by Zipply"`)
@@ -240,6 +278,9 @@ export function dashboardData(): Block[] {
 
   g.put(R.insightsHead, B, 'What stands out')
   insights(m).forEach((f, i) => g.put(R.insights + i, B, f))
+
+  g.put(R.flowHead, B, 'Where your applications went')
+  g.put(R.flow, B, sankeyImage(m))
 
   g.put(R.chartsHead, B, 'Applications per week, by whether they were answered')
   g.put(R.chartsHead, I, 'Where things stand')
@@ -255,8 +296,6 @@ export function dashboardData(): Block[] {
   STATUSES.forEach((s, i) => g.row(1 + i, STAT, [s === 'Applied' ? 'No reply yet' : s, `=COUNTIF(${m.status},"${s}")`]))
   g.row(0, LATEST, ['Company', 'Role', 'Status', 'Date'])
   g.put(1, LATEST, `=IFERROR(SORTN(FILTER({${m.company},${m.title},${m.status},${m.changed}},${m.isAns},ISNUMBER(${m.changed})),8,0,4,FALSE),"")`)
-  g.row(0, WAIT, ['Company', 'Role', 'Applied', 'URL'])
-  g.put(1, WAIT, `=IFERROR(SORTN(FILTER({${m.company},${m.title},${m.date},${m.url}},(${m.status}="Applied")+(${m.status}="Received"),ISNUMBER(${m.date})),8,0,3,TRUE),"")`)
   g.row(0, SITES, ['Site', 'Applied', 'Answered', 'Interview'])
   const per = (cond: string) => `MAP(u,LAMBDA(x,SUMPRODUCT((${m.ats}=x)*${cond})/COUNTIF(${m.ats},x)))`
   g.put(
@@ -313,7 +352,7 @@ export function dashboardData(): Block[] {
     for (let c = B + 1; c <= O; c++) g.put(r, c, `=COUNTIF(${m.date},${colName(c)}$${R.heatHead + 2}+${di})`)
   })
 
-  // Against answers: match score and verdict.
+  // Match score, against answers.
   const outcomeRows = (t: Table, c0: number, rows: [string, string][]) => {
     const s = header(t, R.t2Head, c0)
     rows.forEach(([label, cond], i) => {
@@ -333,29 +372,14 @@ export function dashboardData(): Block[] {
     ['Below 60', `${scored}*(${m.score}<60)`],
     ['Not scored', `${m.hasRow}*NOT(${scored})`],
   ])
-  outcomeRows(RIGHT.verdict, I, [
-    ['Apply', `(${m.verdict}="Apply")`],
-    ['Maybe', `(${m.verdict}="Maybe")`],
-    ['Skip', `(${m.verdict}="Skip")`],
-    ['No verdict', `${m.hasRow}*(${m.verdict}="")`],
-  ])
 
-  // Latest answers and waiting longest, from the hidden lists.
+  // Latest answers, from the hidden list.
   {
-    const sl = header(LEFT.latest, R.t3Head, B)
-    const sw = header(RIGHT.waiting, R.t3Head, I)
+    const sl = header(RIGHT.latest, R.t2Head, I)
     for (let i = 0; i < 8; i++) {
-      const r = R.t3Head + 2 + i
+      const r = R.t2Head + 2 + i
       const l = (j: number) => ref(1 + i, LATEST + j)
-      const w = (j: number) => ref(1 + i, WAIT + j)
-      g.put(r, sl[0], `=${l(0)}`)
-      g.put(r, sl[1], `=${l(1)}`)
-      g.put(r, sl[2], `=${l(2)}`)
-      g.put(r, sl[3], `=${l(3)}`)
-      g.put(r, sw[0], `=${w(0)}`)
-      g.put(r, sw[1], `=IF(${w(0)}="","",IF(${w(3)}="",${w(1)},HYPERLINK(${w(3)},${w(1)})))`)
-      g.put(r, sw[2], `=${w(2)}`)
-      g.put(r, sw[3], `=IF(${w(2)}="","",TODAY()-${w(2)})`)
+      sl.forEach((c, j) => g.put(r, c, `=${l(j)}`))
     }
   }
 
@@ -373,7 +397,12 @@ export function dashboardData(): Block[] {
  * charts made over empty cells).
  */
 export function dashboardCells(sheetId: number): object[] {
-  return dashboardData().map(({ range, values }) => {
+  return cellRequests(dashboardData(), sheetId)
+}
+
+/** Blocks of cells as updateCells requests for one tab. */
+export function cellRequests(blocks: Block[], sheetId: number): object[] {
+  return blocks.map(({ range, values }) => {
     const [, col, row] = range.match(/!([A-Z]+)(\d+)$/)!
     const columnIndex = [...col].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1
     return {
@@ -490,11 +519,13 @@ export function dashboardRequests(sheetId: number): object[] {
     section(r, I, O + 1)
   }
   section(R.insightsHead, B, O + 1)
+  section(R.flowHead, B, O + 1)
+  merge(R.flow, R.flow + R.flowRows, B, O + 1)
+  height(R.flow, R.flow + R.flowRows, SANKEY_ROWH)
   halves(R.chartsHead)
   halves(R.t1Head)
   section(R.heatHead, B, O + 1)
   halves(R.t2Head)
-  halves(R.t3Head)
 
   // What stands out: one sentence per line.
   for (let i = 0; i < 6; i++) merge(R.insights + i, R.insights + i + 1, B, O + 1)
@@ -524,21 +555,13 @@ export function dashboardRequests(sheetId: number): object[] {
     const s = table(RIGHT.sites, R.t1Head, I, 6)
     style([R.t1Head + 2, R.t1Head + 8, s[2], s[4]], pct)
   }
-  for (const [t, c0] of [
-    [LEFT.score, B],
-    [RIGHT.verdict, I],
-  ] as const) {
-    const s = table(t, R.t2Head, c0, 4)
+  {
+    const s = table(LEFT.score, R.t2Head, B, 4)
     style([R.t2Head + 2, R.t2Head + 6, s[2], s[4]], pct)
   }
-  const latest = table(LEFT.latest, R.t3Head, B, 8)
-  const waiting = table(RIGHT.waiting, R.t3Head, I, 8)
-  // Centered, so the date doesn't run into the next table's first column.
-  style([R.t3Head + 1, R.t3Head + 10, latest[3], latest[3] + 1], { horizontalAlignment: 'CENTER', numberFormat: { type: 'DATE', pattern: 'mmm d' } })
-  style([R.t3Head + 2, R.t3Head + 10, waiting[2], waiting[2] + 1], { numberFormat: { type: 'DATE', pattern: 'mmm d' } })
-  style([R.t3Head + 2, R.t3Head + 10, waiting[3], waiting[3] + 1], { numberFormat: { type: 'NUMBER', pattern: '0" days"' } })
-  style([R.t3Head + 2, R.t3Head + 10, waiting[1], waiting[1] + 3], text({ foregroundColor: hex(C.blueDark) }))
-  style([R.t3Head + 2, R.t3Head + 10, latest[2], latest[2] + 1], { horizontalAlignment: 'CENTER', ...text({ fontSize: 9, bold: true }) })
+  const latest = table(RIGHT.latest, R.t2Head, I, 8)
+  style([R.t2Head + 2, R.t2Head + 10, latest[3], latest[3] + 1], { numberFormat: { type: 'DATE', pattern: 'mmm d' } })
+  style([R.t2Head + 2, R.t2Head + 10, latest[2], latest[2] + 1], { horizontalAlignment: 'CENTER', ...text({ fontSize: 9, bold: true }) })
 
   // Activity calendar: tiles with white gaps, zeros left blank.
   const heat: Box = [R.heatHead + 2, R.heatHead + 9, B + 1, O + 1]
@@ -565,11 +588,8 @@ export function dashboardRequests(sheetId: number): object[] {
   const trend = ref(R.card + 2, B + 2)
   when([R.card + 2, R.card + 3, B + 2, B + 4], { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: `=LEFT(${trend},1)="▲"` }] }, { textFormat: { foregroundColor: hex(C.good) } })
   when([R.card + 2, R.card + 3, B + 2, B + 4], { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: `=LEFT(${trend},1)="▼"` }] }, { textFormat: { foregroundColor: hex(C.critical) } })
-  const chips: Box = [R.t3Head + 2, R.t3Head + 10, latest[2], latest[2] + 1]
+  const chips: Box = [R.t2Head + 2, R.t2Head + 10, latest[2], latest[2] + 1]
   for (const [s, bg, fg] of CHIPS) when(chips, { type: 'TEXT_EQ', values: [{ userEnteredValue: s }] }, { backgroundColor: hex(bg), textFormat: { foregroundColor: hex(fg) } })
-  const days: Box = [R.t3Head + 2, R.t3Head + 10, waiting[3], waiting[3] + 1]
-  when(days, { type: 'NUMBER_GREATER_THAN_EQ', values: [{ userEnteredValue: '45' }] }, { textFormat: { foregroundColor: hex(C.critical), bold: true } })
-  when(days, { type: 'NUMBER_GREATER_THAN_EQ', values: [{ userEnteredValue: '30' }] }, { textFormat: { foregroundColor: hex(C.late), bold: true } })
   // Days still to come this week stay white.
   const firstDay = `${colName(B + 1)}$${R.heatHead + 2}+ROW()-${heat[0] + 1}`
   when(heat, { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: `=${firstDay}>TODAY()` }] }, { backgroundColor: hex(C.white) })

@@ -239,7 +239,8 @@ export interface Posting {
 
 export type AtsName = 'Workday' | 'iCIMS' | 'Greenhouse' | 'Lever' | 'Ashby' | 'Oracle' | 'SmartRecruiters' | 'Handshake' | 'Other'
 
-export type AppStatus = 'Applied' | 'Received' | 'Assessment' | 'Interview' | 'Offer' | 'Rejected'
+/** Ghosted: no answer beyond an automatic one, two months on. */
+export type AppStatus = 'Applied' | 'Received' | 'Ghosted' | 'Assessment' | 'Interview' | 'Offer' | 'Rejected'
 
 export interface JobRecord {
   appId: string
@@ -248,7 +249,7 @@ export interface JobRecord {
   title: string
   location: string
   jobId: string
-  ats: AtsName
+  ats: AtsName | ''
   url: string
   resumeUsed: string
   matchScore: number | ''
@@ -275,6 +276,8 @@ export interface AppliedEntry {
   lastStatusChange: string
   /** The hiring system, as the sheet's ATS column says. */
   ats?: string
+  /** Added by Gmail sync from an email, not logged by Zipply when you applied. */
+  fromEmail?: boolean
   /** 1-based sheet row, when known. */
   row?: number
 }

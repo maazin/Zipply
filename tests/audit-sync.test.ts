@@ -7,15 +7,16 @@ import { normalizeCompany } from '@/shared/text'
 const alarms: { name: string; info: unknown }[] = []
 installChrome({ alarms: { create: async (name: string, info: unknown) => void alarms.push({ name, info }) } })
 
-const sheet = { ids: new Set<string>(), appended: [] as string[], statuses: [] as unknown[], missing: new Set<string>(), removed: 0 }
+const sheet = { ids: new Set<string>(), appended: [] as string[], statuses: [] as unknown[], missing: new Set<string>(), removed: 0, before: undefined as string | undefined }
 
 vi.mock('@/background/sheets', () => {
   class MissingRowError extends Error {}
   return {
     MissingRowError,
     FROM_EMAIL: 'Added from your email',
-    removeEmailRows: async () => {
+    removeEmailRows: async (before?: string) => {
       sheet.removed++
+      sheet.before = before
       return 0
     },
     sheetAppIds: async () => new Set(sheet.ids),
@@ -32,7 +33,8 @@ vi.mock('@/background/sheets', () => {
   }
 })
 
-const mail: Record<string, { from: string; subject: string; body: string; date: string }> = {}
+const mail: Record<string, { from: string; subject: string; body: string; date: string; to?: string; labeled?: boolean; sent?: boolean }> = {}
+const listed: string[] = []
 /** Message IDs Gmail refuses with its per-minute rate limit. */
 const limited = new Set<string>()
 vi.mock('@/background/google', () => {
@@ -46,7 +48,12 @@ vi.mock('@/background/google', () => {
   NotConnectedError: class extends Error {},
   HttpError,
   gfetch: async (url: string) => {
-    if (url.includes('/messages?')) return { messages: Object.keys(mail).map((id) => ({ id })) }
+    if (url.includes('/labels')) return { labels: [{ name: 'Applications/Applied', type: 'user' }, { name: 'INBOX', type: 'system' }] }
+    if (url.includes('/messages?')) {
+      listed.push(url)
+      const byLabel = decodeURIComponent(url).includes('label:applications-applied')
+      return { messages: Object.keys(mail).filter((id) => (byLabel ? mail[id].labeled : !mail[id].sent)).map((id) => ({ id })) }
+    }
     const id = url.match(/messages\/([^?]+)/)![1]
     if (limited.has(id)) throw new HttpError(403, "Google API 403: Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'")
     const m = mail[id]
@@ -55,7 +62,8 @@ vi.mock('@/background/google', () => {
     return {
       id,
       internalDate: String(new Date(m.date + 'T12:00:00').getTime()),
-      payload: { mimeType: 'text/plain', body: { data: b64 }, headers: [{ name: 'From', value: m.from }, { name: 'Subject', value: m.subject }] },
+      labelIds: m.sent ? ['SENT'] : ['INBOX'],
+      payload: { mimeType: 'text/plain', body: { data: b64 }, headers: [{ name: 'From', value: m.from }, { name: 'To', value: m.to ?? 'me@example.com' }, { name: 'Subject', value: m.subject }] },
     }
   },
   }
@@ -83,6 +91,7 @@ beforeEach(async () => {
   sheet.removed = 0
   for (const k of Object.keys(mail)) delete mail[k]
   limited.clear()
+  listed.length = 0
   alarms.length = 0
 })
 
@@ -222,6 +231,7 @@ describe('Gmail sync', () => {
     expect(alarms).toEqual([{ name: 'zipply-gmail', info: { delayInMinutes: 2, periodInMinutes: 120 } }])
     // The retry: no rescan from scratch, just the rest.
     limited.clear()
+  listed.length = 0
     await db.applied.update('Mujin', { status: 'Applied' })
     await syncGmail()
     expect((await db.applied.get('Wayve'))!.status).toBe('Received')
@@ -319,5 +329,60 @@ describe('applications found in email', () => {
     const res = await syncGmail()
     expect(res.added ?? 0).toBe(0)
     expect(await db.applied.count()).toBe(1)
+  })
+})
+
+describe('trash and your Applied label', () => {
+  const tracked = (o: Partial<AppliedEntry> = {}): AppliedEntry => ({
+    key: 'seb', appId: 'seb', company: 'SEB', companyNorm: 'seb', title: 'Cloud Developer', jobId: '', url: '', ats: 'Lever',
+    dateApplied: '2026-10-22', status: 'Received', firstReply: '', lastStatusChange: '2026-10-22', ...o,
+  })
+
+  it('searches the trash, where rejections get deleted, but not spam', async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.put(tracked())
+    mail.t1 = { from: 'SEB <no-reply@lever.co>', subject: 'With reference to your application at SEB', body: 'Unfortunately, we have decided to move forward with other candidates.', date: '2026-10-27' }
+    await syncGmail()
+    expect(listed.every((u) => u.includes('includeSpamTrash=true'))).toBe(true)
+    expect(listed.every((u) => decodeURIComponent(u).includes('-in:spam'))).toBe(true)
+    expect((await db.applied.get('seb'))!.status).toBe('Rejected')
+  })
+
+  it('adds what is in your Applied label: a confirmation in Spanish, and an application you emailed', async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.put(tracked())
+    mail.l1 = { from: 'Factorial <noreply@nologin.es>', subject: 'Gracias por su solicitud', body: 'Hola Maazin, muchas gracias por aplicar para el puesto AI Engineer en NOLOGIN CONSULTING SLU.', date: '2026-10-27', labeled: true }
+    mail.l2 = { from: 'Maazin <me@example.com>', to: 'careers@serpapi.com', subject: 'Junior Fullstack Engineer - Maazin Shaikh', body: 'Please consider my application.', date: '2026-10-27', labeled: true, sent: true }
+    // Not in the label and not readable: left alone.
+    mail.l3 = { from: 'Someone <hi@acme.com>', subject: 'Gracias por su solicitud', body: 'Hola.', date: '2026-10-27' }
+    const res = await syncGmail()
+    expect(res.added).toBe(2)
+    const rows = Object.fromEntries((await db.applied.toArray()).map((r) => [r.company, r.status]))
+    expect(rows).toMatchObject({ Nologin: 'Received', Serpapi: 'Applied', SEB: 'Received' })
+    expect(rows.Acme).toBeUndefined()
+  })
+
+  it('never changes a status from an email you sent', async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.put(tracked())
+    mail.s1 = { from: 'Maazin <me@example.com>', to: 'jobs@seb.se', subject: 'Following up on my interview', body: "I'd like to schedule a call about the next round.", date: '2026-10-27', labeled: true, sent: true }
+    await syncGmail()
+    expect((await db.applied.get('seb'))!.status).toBe('Received')
+  })
+})
+
+describe('how far back applications are found', () => {
+  it('starts from the month before the first application Zipply logged, not one it found', async () => {
+    const { db: d } = await import('@/lib/db')
+    await updateSettings({ gmailEnabled: true, gmailRulesVersion: 12 })
+    await d.applied.bulkPut([
+      { key: 'z', appId: 'z', company: 'Luminai', companyNorm: 'luminai', title: 'Engineer', jobId: '', url: '', dateApplied: '2026-10-19', status: 'Received', firstReply: '', lastStatusChange: '2026-10-19' },
+      { key: 'e', appId: 'e', company: 'Old Co', companyNorm: 'old co', title: '', jobId: '', url: '', dateApplied: '2026-09-02', status: 'Received', firstReply: '', lastStatusChange: '2026-09-02', fromEmail: true },
+    ])
+    await syncGmail()
+    // Oct 19 less two weeks is Oct 5: from Oct 1. What 12 found before then goes.
+    expect(sheet.before).toBe('2026-10-01')
+    const { getSettings } = await import('@/lib/repo')
+    expect((await getSettings()).gmailDiscoverSince).toBe('2026-10-01')
   })
 })

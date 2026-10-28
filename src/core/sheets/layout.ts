@@ -7,6 +7,10 @@ import { normalizeCompany, toISODate } from '@/shared/text'
 import { entryKey } from '../score/applied'
 
 export const APPS = 'Applications'
+/** The note on rows Gmail sync added from email (see logFromEmail); the longer one is from before. */
+export const FROM_EMAIL = 'From email'
+const FROM_EMAIL_BEFORE = 'Added from your email'
+const fromEmail = (notes: string) => notes.startsWith(FROM_EMAIL) || notes.startsWith(FROM_EMAIL_BEFORE)
 
 export const COLUMNS = [
   'Application ID',
@@ -71,11 +75,12 @@ export function entryFromRecord(r: JobRecord, row?: number): AppliedEntry {
     firstReply: r.firstReply,
     lastStatusChange: r.lastStatusChange,
     ats: r.ats,
+    fromEmail: fromEmail(r.notes),
     row,
   }
 }
 
-export const STATUSES: AppStatus[] = ['Applied', 'Received', 'Assessment', 'Interview', 'Offer', 'Rejected']
+export const STATUSES: AppStatus[] = ['Applied', 'Received', 'Ghosted', 'Assessment', 'Interview', 'Offer', 'Rejected']
 
 /** Statuses typed by hand in other words ("rejected", "Declined", "Interviewing"). */
 const STATUS_WORDS: [RegExp, AppStatus][] = [
@@ -84,6 +89,7 @@ const STATUS_WORDS: [RegExp, AppStatus][] = [
   [/^(assessment|oa|online assessment|take[- ]home|coding challenge)$/i, 'Assessment'],
   [/^(offer(ed)?)$/i, 'Offer'],
   [/^(received|acknowledged|in review|under review|reviewed)$/i, 'Received'],
+  [/^(ghosted|ghost|no response|no answer|silent)$/i, 'Ghosted'],
 ]
 
 export function readStatus(s: string): AppStatus {
@@ -95,7 +101,7 @@ export function readStatus(s: string): AppStatus {
 export function parseRows(values: string[][], firstRow = 2): AppliedEntry[] {
   const out: AppliedEntry[] = []
   values.forEach((v, i) => {
-    const [appId, dateApplied, company, title, , jobId, ats, url, , , , , status, firstReply, lastStatusChange] = v.map((x) => String(x ?? ''))
+    const [appId, dateApplied, company, title, , jobId, ats, url, , , , , status, firstReply, lastStatusChange, notes] = v.map((x) => String(x ?? ''))
     if (!appId && !company) return
     out.push({
       key: entryKey(company, jobId, url, appId),
@@ -111,6 +117,7 @@ export function parseRows(values: string[][], firstRow = 2): AppliedEntry[] {
       firstReply: toISODate(firstReply),
       lastStatusChange: toISODate(lastStatusChange),
       ats,
+      fromEmail: fromEmail(notes ?? ''),
       row: firstRow + i,
     })
   })
@@ -134,6 +141,7 @@ export const CHIPS: [AppStatus, string, string][] = [
   ['Assessment', '#fdf2d8', '#7a5200'],
   ['Received', '#e6effb', '#1c5cab'],
   ['Rejected', '#fbe4e4', '#a32929'],
+  ['Ghosted', '#ecebe6', '#52514e'],
 ]
 
 export const hex = (h: string) => ({ red: parseInt(h.slice(1, 3), 16) / 255, green: parseInt(h.slice(3, 5), 16) / 255, blue: parseInt(h.slice(5, 7), 16) / 255 })

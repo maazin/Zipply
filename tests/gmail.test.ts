@@ -204,3 +204,19 @@ describe('job alerts', async () => {
     expect(isJobAlert('Thank You for Your Interest in The Home Depot', 'Thank you for applying.\nWe have decided to pursue other candidates.\nJoin our talent community to hear about new openings.')).toBe(false)
   })
 })
+
+describe('more real emails', async () => {
+  const { classifyEmail, discoverApplication, isJobAlert } = await import('@/core/gmail/rules')
+  it('reads Southern Company\'s "No interview" as a rejection, and skips its identity check', () => {
+    expect(classifyEmail('No interview for Data Scientist (All Levels)', 'We appreciate your interest in Southern Company and wish you much success in your career search.')).toBe('Rejected')
+    expect(classifyEmail('With reference to your application at SEB', 'We have carefully reviewed your candidacy and unfortunately, this time we did not select you for further consideration.')).toBe('Rejected')
+    expect(isJobAlert('Please confirm your identity', 'This inbox is not monitored.')).toBe(true)
+    expect(classifyEmail('Thanks for applying', 'We received your application and wish you a great day.')).toBe('Received')
+  })
+  it('names "the Center for Energy and Environment", never a mailbox', () => {
+    const d = discoverApplication({ from: 'no-reply-abc@mncee.org', subject: 'Thank you for applying at the Center for Energy and Environment', body: 'Thank you for your application for this position.' }, 'Received')
+    expect(d?.company).toBe('Center for Energy and Environment')
+    expect(discoverApplication({ from: 'x <jobs@ashbyhq.com>', subject: "An update on your application at Notion's", body: 'Thank you for your application for this position.' }, 'Received')?.company).toBe('Notion')
+    expect(discoverApplication({ from: 'x <no-reply-abc@mail.example>', subject: 'Hello', body: 'Thank you for your application for this position.' }, 'Received')?.company ?? '').not.toMatch(/no-?reply/i)
+  })
+})

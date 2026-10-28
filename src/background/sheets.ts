@@ -30,14 +30,22 @@ async function buildDashboard(id: string, styleApps: boolean): Promise<void> {
   const meta = await gfetch<{ sheets: { properties: { sheetId: number; title: string; index: number } }[] }>(`${BASE}/${id}?fields=sheets.properties(sheetId,title,index)`, S)
   const apps = meta.sheets.find((s) => s.properties.title === APPS)?.properties
   const dash = meta.sheets.find((s) => s.properties.title === DASH)?.properties
+  // A Flow tab held a Sankey drawn in cells; the Dashboard has a real one now.
+  const flow = meta.sheets.find((s) => s.properties.title === 'Flow')?.properties
   if (!apps) throw new Error(`The sheet is missing its ${APPS} tab`)
   const used = new Set(meta.sheets.map((s) => s.properties.sheetId))
-  let dashId = 0
-  while (!dashId || used.has(dashId)) dashId = 1 + Math.floor(Math.random() * 2_000_000_000)
+  const newId = () => {
+    let n = 0
+    while (!n || used.has(n)) n = 1 + Math.floor(Math.random() * 2_000_000_000)
+    used.add(n)
+    return n
+  }
+  const dashId = newId()
   const requests = [
     themeRequest(),
     ...(styleApps ? appsRequests(apps.sheetId) : []),
     ...(dash ? [{ deleteSheet: { sheetId: dash.sheetId } }] : []),
+    ...(flow ? [{ deleteSheet: { sheetId: flow.sheetId } }] : []),
     {
       addSheet: {
         properties: {
@@ -68,8 +76,13 @@ async function buildDashboard(id: string, styleApps: boolean): Promise<void> {
  * 5 to 7: dashboard chart colors, which come from the spreadsheet theme.
  *    Rebuild only the Dashboard tab: the Applications tab's status colors would
  *    otherwise be added twice.
+ * 8 to 14: a Sankey of where applications went (12: drawn by QuickChart on the
+ *    Dashboard, no more Flow tab; 13: with Ghosted; 14: rebuilt over a Dashboard
+ *    and Flow tab made outside Zipply); no verdict table or waiting list.
+ * 15: applications counted by Company, not Application ID (rows added outside
+ *    Zipply may have none).
  */
-const SHEET_FORMAT = 7
+const SHEET_FORMAT = 15
 
 async function repairFormats(id: string): Promise<void> {
   const version = (await getSettings()).sheetFormatVersion ?? 0
@@ -325,20 +338,21 @@ export async function writeStatus(u: StatusUpdate): Promise<void> {
   )
 }
 
-/** The note on rows added from email; see logFromEmail. */
-export const FROM_EMAIL = 'Added from your email'
-
 /**
- * Delete the rows Gmail sync added from email. Version 6 of its rules added some
- * twice and named others after a mailing service, so they're removed and found again.
+ * Delete the rows Gmail sync added from email: all of them (versions 6 to 10 of
+ * its rules added some twice or misnamed them, so they're found again), or only
+ * those dated before a day (version 12 reached back further than asked).
  */
-export async function removeEmailRows(): Promise<number> {
+export async function removeEmailRows(before?: string): Promise<number> {
   const id = await ensureSheet()
   const meta = await gfetch<{ sheets: { properties: { sheetId: number; title: string } }[] }>(`${BASE}/${id}?fields=sheets.properties(sheetId,title)`, S)
   const sheetId = meta.sheets.find((s) => s.properties.title === APPS)?.properties.sheetId
   if (sheetId == null) return 0
-  const notes = await gfetch<{ values?: string[][] }>(`${BASE}/${id}/values/${encodeURIComponent(`${APPS}!${LAST_COL}:${LAST_COL}`)}`, S)
-  const rows = (notes.values ?? []).map((r, i) => (String(r[0] ?? '').startsWith(FROM_EMAIL) ? i : -1)).filter((i) => i > 0)
+  const res = await gfetch<{ values?: string[][] }>(`${BASE}/${id}/values/${encodeURIComponent(`${APPS}!A:${LAST_COL}`)}`, S)
+  const rows = parseRows((res.values ?? []).slice(1))
+    // A rejection alone has no applied date: the day it came stands in.
+    .filter((r) => r.fromEmail && (!before || (r.dateApplied || r.lastStatusChange) < before))
+    .map((r) => r.row! - 1)
   if (!rows.length) return 0
   // Bottom up, so each index is still right when its turn comes.
   const requests = rows.reverse().map((i) => ({ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: i, endIndex: i + 1 } } }))

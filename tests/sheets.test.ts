@@ -34,8 +34,20 @@ describe('sheet layout', () => {
     // "We received your application" isn't an answer.
     expect(data.flatMap((d) => d.values.flat()).join(' ')).toContain('{"Assessment","Interview","Offer","Rejected"}')
     expect(cells).toContain('MEDIAN(FILTER(')
+    // Counted by Company: rows added by hand may have no Application ID.
+    expect(cells).toContain('COUNTA(Applications!C:C)-1')
     expect(cells).toContain('SPARKLINE(')
     expect(cells).toContain('What stands out')
+    // The Sankey: QuickChart draws it from the counts alone; gone: the verdict and waiting tables.
+    const image = data.flatMap((d) => d.values.flat()).find((v) => typeof v === 'string' && v.startsWith('=IMAGE(')) as string
+    expect(image).toContain('https://quickchart.io/chart?')
+    expect(image).toContain("type:'sankey'")
+    expect(image).toContain('ENCODEURL(')
+    // No company, title or posting URL leaves the sheet: the company column is only ever counted.
+    expect(image).not.toMatch(/Applications!(D|H):/)
+    expect(image.replace(/COUNTA\(Applications!C:C\)/g, '')).not.toContain('Applications!C:C')
+    expect(cells).not.toContain('Waiting longest')
+    expect(cells).not.toContain('verdict, against answers')
 
     const merges = (dashboardRequests(7) as { mergeCells?: { range: Record<string, number> } }[])
       .flatMap((r) => (r.mergeCells ? [r.mergeCells.range] : []))

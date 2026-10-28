@@ -6,7 +6,7 @@
 import type { AppliedEntry, AppStatus, StatusEvent } from '@/shared/types'
 import { uid } from '@/shared/defaults'
 import { daysBetween, todayISO, toISODate } from '@/shared/text'
-import { buildDiscoveryQuery, buildQueries, classifyEmail, discoverApplication, isJobAlert, matchApplication, nextStatus, sameCompany, titleIn, type Discovered } from '@/core/gmail/rules'
+import { APPLIED_LABEL, buildDiscoveryQuery, buildLabelQuery, buildQueries, classifyEmail, discoverApplication, isJobAlert, matchApplication, nextStatus, sameCompany, titleIn, type Discovered } from '@/core/gmail/rules'
 import { db } from '@/lib/db'
 import { getSettings, updateSettings } from '@/lib/repo'
 import { gfetch, HttpError, SCOPES } from './google'
@@ -29,6 +29,7 @@ interface Part {
 interface Message {
   id: string
   internalDate: string
+  labelIds?: string[]
   payload: Part
 }
 
@@ -69,7 +70,8 @@ async function listIds(q: string, max = 1000): Promise<string[]> {
   let pageToken = ''
   do {
     const res = await gfetch<{ messages?: { id: string }[]; nextPageToken?: string }>(
-      `${API}/messages?q=${encodeURIComponent(q)}&maxResults=100${pageToken ? `&pageToken=${pageToken}` : ''}`,
+      // Trash too: rejections are often deleted on sight.
+      `${API}/messages?q=${encodeURIComponent(q)}&maxResults=100&includeSpamTrash=true${pageToken ? `&pageToken=${pageToken}` : ''}`,
       S,
     )
     ids.push(...(res.messages ?? []).map((m) => m.id))
@@ -142,12 +144,25 @@ let syncing = false
  * 11: Handshake's "application sent" notes, whose "similar jobs" named other
  *    applications, are skipped; a rejection mentioning a "talent community" isn't
  *    an alert; "Additional Details" isn't a company. What 6 to 10 added is found again.
+ * 12: trash is searched (rejections get deleted), and your own "Applied" label
+ *    adds the applications in it, the ones you sent yourself included, back to
+ *    the start of the month.
+ * 13: that start counts only applications Zipply logged itself; 12 counted the
+ *    ones it found, reached back to September, and those rows are removed.
+ * 14: "No interview for …" and "we wish you success in your search" are
+ *    rejections; the AI fallback never sets Offer.
  */
-export const RULES_VERSION = 11
+export const RULES_VERSION = 14
 /** An email can arrive a few days before the row's date (logged late, time zones). */
 const GRACE_DAYS = 3
 /** Emails about applications Zipply didn't log, from this long before the first one it did. */
 const DISCOVER_DAYS = 14
+
+/** Your Gmail labels for applications, by name. None is fine. */
+async function appliedLabels(): Promise<string[]> {
+  const res = await gfetch<{ labels?: { name: string; type: string }[] }>(`${API}/labels`, S).catch(() => ({ labels: [] }))
+  return (res.labels ?? []).filter((l) => l.type === 'user' && APPLIED_LABEL.test(l.name)).map((l) => l.name)
+}
 
 /**
  * The sheet may already have this application under another name ("Tripactions"
@@ -161,6 +176,15 @@ async function knownAs(found: Discovered, text: string, date: string): Promise<b
   return (await db.applied.toArray()).some(
     (a) => sameCompany(a.company, found.company) || (found.ats !== 'Other' && a.ats === found.ats && near(toISODate(a.dateApplied)) && titleIn(a.title, lower)),
   )
+}
+
+/**
+ * The first day of the month two weeks before the first application Zipply
+ * logged itself. Not the ones found in email: each would move it back further.
+ */
+function discoverSince(apps: AppliedEntry[]): string {
+  const first = apps.filter((a) => !a.fromEmail).map((a) => a.dateApplied).filter(Boolean).sort()[0]
+  return `${todayISO(new Date((first ? Date.parse(first) : Date.now()) - DISCOVER_DAYS * 86_400_000)).slice(0, 8)}01`
 }
 
 export async function syncGmail(): Promise<SyncResult> {
@@ -180,6 +204,11 @@ export async function syncGmail(): Promise<SyncResult> {
         await removeEmailRows()
         await refreshApplied()
       }
+      // 12 dated its start from rows it had found itself, so it reached back further than asked.
+      if (settings.gmailRulesVersion === 12) {
+        await removeEmailRows(discoverSince(await applied()))
+        await refreshApplied()
+      }
       await Promise.all([db.emails.clear(), db.unmatched.clear()])
       await updateSettings({ gmailRulesVersion: RULES_VERSION, gmailDiscoverSince: '' })
     }
@@ -192,15 +221,20 @@ export async function syncGmail(): Promise<SyncResult> {
     const days = Math.min(120, Math.max(30, oldest ? daysBetween(oldest) + GRACE_DAYS + 1 : 30))
     const ids: string[] = []
     for (const q of buildQueries(open.map((a) => a.company), days)) ids.push(...(await listIds(q)))
-    // Applications made without Zipply, back to two weeks before the first one it
-    // logged. Fixed once: the ones found in email would otherwise move it back each time.
+    // Applications made without Zipply, from the start of the month two weeks before
+    // the first one it logged. Fixed once: the ones found in email would otherwise
+    // move it back each time.
     let since = (await getSettings()).gmailDiscoverSince
     if (!since) {
-      const first = apps.map((a) => a.dateApplied).filter(Boolean).sort()[0]
-      since = todayISO(new Date((first ? Date.parse(first) : Date.now()) - DISCOVER_DAYS * 86_400_000))
+      since = discoverSince(apps)
       await updateSettings({ gmailDiscoverSince: since })
     }
-    ids.push(...(await listIds(buildDiscoveryQuery(Math.min(120, daysBetween(since) + 1)))))
+    const back = Math.min(120, daysBetween(since) + 1)
+    ids.push(...(await listIds(buildDiscoveryQuery(back))))
+    // Your own "Applied" label, the applications you sent yourself included.
+    const labels = await appliedLabels()
+    const labeled = new Set(labels.length ? await listIds(buildLabelQuery(labels, back)) : [])
+    ids.push(...labeled)
     const seen = new Set((await db.emails.bulkGet(ids)).filter(Boolean).map((r) => r!.id))
     // Oldest first, so statuses advance in order. Gmail's IDs grow with time.
     const fresh = [...new Set(ids)].filter((id) => !seen.has(id)).sort((a, b) => a.length - b.length || a.localeCompare(b))
@@ -221,6 +255,7 @@ export async function syncGmail(): Promise<SyncResult> {
       // A big backlog (the first sync, or a rescan) goes at a steady pace.
       if (fresh.length > 20) await new Promise((r) => setTimeout(r, PACE_MS))
       const email = { from: header(m, 'From'), subject: header(m, 'Subject'), body: await bodyText(m) }
+      const sent = Boolean(m.labelIds?.includes('SENT'))
       // Job alerts and account mail: not about an application, and not for the AI to guess at.
       if (isJobAlert(email.subject, email.body, email.from)) {
         await db.emails.put({ id, at: Date.now() })
@@ -231,20 +266,31 @@ export async function syncGmail(): Promise<SyncResult> {
       // the email was sent: an old rejection must not close a new application.
       const latest = todayISO(new Date(Number(m.internalDate) + GRACE_DAYS * 86_400_000))
       const open = (await applied()).filter((a) => (!a.dateApplied || a.dateApplied >= cutoff) && (!a.dateApplied || a.dateApplied <= latest))
-      const { entry, candidates, also = [] } = matchApplication(email, open)
-      let status = classifyEmail(email.subject, email.body)
+      // An application you sent yourself: about the place it went, and it says nothing about a status.
+      const about = sent ? { ...email, from: header(m, 'To') } : email
+      const { entry, candidates, also = [] } = matchApplication(about, open)
+      let status = sent ? 'Applied' : classifyEmail(email.subject, email.body)
 
-      const found = !entry && !candidates.length && date >= since ? discoverApplication(email, status) : null
+      const how = { labeled: labeled.has(id), sent }
+      const found = !entry && !candidates.length && date >= since ? discoverApplication(about, status, how) : null
       if (found && !(await knownAs(found, `${email.subject}\n${email.body}`, date))) {
-        await logFromEmail({ ...found, status: status!, date, subject: email.subject })
+        // A confirmation in your label that the rules can't read (another language): received.
+        await logFromEmail({ ...found, status: status ?? 'Received', date, subject: email.subject })
         added++
+      } else if (sent) {
+        // Never a status change from your own email.
       } else if (!entry) {
         if (status || candidates.length) {
           await db.unmatched.put({ messageId: id, reason: candidates.length ? 'Matches more than one application' : 'No matching application', candidates: candidates.map((c) => c.appId), at: Date.now() })
           unmatched++
         }
       } else {
-        if (!status) status = await classifyEmailAi(email.subject, email.body, settings.cloudEmailFallback)
+        // The AI only fills in when the rules found nothing, and never calls an offer:
+        // that one goes to you to check.
+        if (!status) {
+          const guess = await classifyEmailAi(email.subject, email.body, settings.cloudEmailFallback)
+          status = guess === 'Offer' ? null : guess
+        }
         if (!status) {
           await db.unmatched.put({ messageId: id, reason: 'Couldn’t tell what this email means', candidates: [entry.appId], at: Date.now() })
           unmatched++
