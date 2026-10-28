@@ -7,12 +7,17 @@ import { normalizeCompany } from '@/shared/text'
 const alarms: { name: string; info: unknown }[] = []
 installChrome({ alarms: { create: async (name: string, info: unknown) => void alarms.push({ name, info }) } })
 
-const sheet = { ids: new Set<string>(), appended: [] as string[], statuses: [] as unknown[], missing: new Set<string>() }
+const sheet = { ids: new Set<string>(), appended: [] as string[], statuses: [] as unknown[], missing: new Set<string>(), removed: 0 }
 
 vi.mock('@/background/sheets', () => {
   class MissingRowError extends Error {}
   return {
     MissingRowError,
+    FROM_EMAIL: 'Added from your email',
+    removeEmailRows: async () => {
+      sheet.removed++
+      return 0
+    },
     sheetAppIds: async () => new Set(sheet.ids),
     refreshApplied: async () => [],
     appendRecord: async (r: JobRecord) => {
@@ -75,6 +80,7 @@ beforeEach(async () => {
   sheet.appended = []
   sheet.statuses = []
   sheet.missing.clear()
+  sheet.removed = 0
   for (const k of Object.keys(mail)) delete mail[k]
   limited.clear()
   alarms.length = 0
@@ -235,5 +241,83 @@ describe('Gmail sync', () => {
     await db.applied.update('Wayve', { status: 'Applied' })
     await syncGmail()
     expect((await db.applied.get('Wayve'))!.status).toBe('Applied')
+  })
+})
+
+describe('applications found in email', () => {
+  const existing = (o: Partial<AppliedEntry>): AppliedEntry => ({
+    key: 'k', appId: 'a', company: 'Tripactions', companyNorm: 'tripactions', title: 'Software Engineer, New Grad', jobId: '', url: '', ats: 'Greenhouse',
+    dateApplied: '2026-10-27', status: 'Applied', firstReply: '', lastStatusChange: '2026-10-27', ...o,
+  })
+  const rows = async () => (await db.applied.toArray()).sort((a, b) => a.company.localeCompare(b.company))
+
+  it('adds a rejection for an application the sheet never had, with no applied date', async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.put(existing({}))
+    mail.r1 = {
+      from: 'Branden Smith <branden@contextlabs.com>',
+      subject: 'Thank you for your interest in Context Labs',
+      body: 'Hi Maazin,\nAlthough your background is impressive, we regret to inform you that we have decided to pursue other candidates for the position at this time.',
+      date: '2026-10-27',
+    }
+    const res = await syncGmail()
+    expect(res.added).toBe(1)
+    const ctx = (await rows()).find((r) => r.company === 'Context Labs')!
+    expect(ctx).toMatchObject({ status: 'Rejected', dateApplied: '', lastStatusChange: '2026-10-27' })
+    expect(sheet.appended).toHaveLength(1)
+  })
+
+  it('a confirmation adds it, and the later rejection moves that row', async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.put(existing({}))
+    mail.c1 = { from: 'Boosters Hiring Team <no-reply@ashbyhq.com>', subject: 'Thanks for applying | Boosters | Trainee Data Analyst', body: 'Thank you for applying to the Trainee Data Analyst role at Boosters.', date: '2026-10-22' }
+    mail.c2 = { from: 'Boosters Hiring Team <no-reply@ashbyhq.com>', subject: 'Update on your application to Boosters', body: 'Unfortunately, we have decided to move forward with other candidates.', date: '2026-10-23' }
+    await syncGmail()
+    const b = (await rows()).filter((r) => /boosters/i.test(r.company))
+    expect(b).toHaveLength(1)
+    expect(b[0]).toMatchObject({ status: 'Rejected', dateApplied: '2026-10-22' })
+  })
+
+  it('keeps each application found in email apart, so a later rejection finds its own', async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.put(existing({}))
+    mail.a1 = { from: 'Clay <no-reply@ashbyhq.com>', subject: 'Thanks for applying to Clay!', body: 'Thank you for your application.', date: '2026-10-20' }
+    mail.a2 = { from: 'Harvey <no-reply@greenhouse-mail.io>', subject: 'Thank You for Applying to Harvey', body: 'We received your application.', date: '2026-10-21' }
+    mail.a3 = { from: 'Clay <no-reply@ashbyhq.com>', subject: 'Your application to Clay', body: 'Unfortunately, we will not be moving forward with your application.', date: '2026-10-24' }
+    const res = await syncGmail()
+    expect(res.added).toBe(2)
+    const byCo = Object.fromEntries((await rows()).map((r) => [r.company, r.status]))
+    expect(byCo).toMatchObject({ Clay: 'Rejected', Harvey: 'Received', Tripactions: 'Applied' })
+  })
+
+  it("adds a rejection even when another job that week has the same title", async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.put(existing({ title: 'Software Engineer' }))
+    mail.p1 = { from: 'P&G Workday System <pg@myworkday.com>', subject: 'P&G Careers – Application Outcome', body: 'We regret to inform you that you have not been chosen for the Software Engineer position.', date: '2026-10-27' }
+    expect((await syncGmail()).added).toBe(1)
+  })
+
+  it('removes what the first version added before finding it again', async () => {
+    await updateSettings({ gmailEnabled: true, gmailRulesVersion: 6 })
+    await db.applied.put(existing({}))
+    await syncGmail()
+    expect(sheet.removed).toBe(1)
+    await updateSettings({ gmailRulesVersion: 10 })
+    await syncGmail()
+    expect(sheet.removed).toBe(2)
+    await updateSettings({ gmailRulesVersion: 5 })
+    await syncGmail()
+    expect(sheet.removed).toBe(2)
+  })
+
+  it("doesn't add a company the sheet has under another name, or a webinar", async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.put(existing({}))
+    mail.n1 = { from: 'Navan <no-reply@us.greenhouse-mail.io>', subject: 'Thank you for applying to Navan', body: 'Thank you for applying for the Software Engineer, New Grad role.', date: '2026-10-27' }
+    mail.w1 = { from: 'Carnegie Mellon <events@cmu.edu>', subject: 'Grad School Insights Webinar', body: 'Thank you for your interest! Your graduate application questions answered.', date: '2026-10-21' }
+    mail.h1 = { from: 'Handshake <hello@notifications.joinhandshake.com>', subject: "Application sent to Tech Comm — here's what's next", body: 'Thank you for applying. Your application was sent.', date: '2026-10-26' }
+    const res = await syncGmail()
+    expect(res.added ?? 0).toBe(0)
+    expect(await db.applied.count()).toBe(1)
   })
 })

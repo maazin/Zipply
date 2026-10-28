@@ -131,3 +131,76 @@ describe('buildQueries', () => {
     expect(qs.join(' ')).toContain(`"${names[69].toLowerCase()}"`)
   })
 })
+
+describe('applications found in email', async () => {
+  const { discoverApplication, sameCompany, buildDiscoveryQuery } = await import('@/core/gmail/rules')
+  const found = (from: string, subject: string, body = 'Thank you for your application for this position.', status: 'Received' | 'Rejected' = 'Received') =>
+    discoverApplication({ from, subject, body }, status)
+
+  it('names the employer from the subject or the sender', () => {
+    expect(found('Branden Smith <b@contextlabs.com>', 'Thank you for your interest in Context Labs', 'we regret to inform you that we will pursue other candidates for the position', 'Rejected')?.company).toBe('Context Labs')
+    expect(found('Lenovo Talent Acquisition <ta@lenovo.com>', 'Jobs at Lenovo', 'we are moving forward with other candidates for the role', 'Rejected')?.company).toBe('Lenovo')
+    expect(found('P&G Workday System <pg@myworkday.com>', 'P&G Careers – Application Outcome', 'We regret to inform you that you have not been chosen for this position', 'Rejected')).toMatchObject({ company: 'P&G', ats: 'Workday' })
+    expect(found('Do Not Reply <noreply@mtdproducts.com>', 'Update Regarding Your Application with MTD', 'After careful review of your application', 'Rejected')?.company).toBe('MTD')
+    expect(found('JD <jd@zanskar.us>', 'Maazin - Thank you for your interest', "we've decided not to move forward with your candidacy for this particular position", 'Rejected')?.company).toBe('Zanskar')
+    expect(found('Quora Recruiting <no-reply@quora.com>', 'Quora | Thank you for applying! | Full Stack Software Engineer')?.company).toBe('Quora')
+    expect(found('no-reply <no-reply@greenhouse-mail.io>', 'Thank you for applying for AI Engineer at Cogent Labs')).toMatchObject({ company: 'Cogent Labs', title: 'AI Engineer', ats: 'Greenhouse' })
+    expect(found('Wayve <no-reply@ashbyhq.com>', 'Update on your application at Wayve - ML Triaging Engineer')).toMatchObject({ company: 'Wayve', title: 'ML Triaging Engineer' })
+  })
+
+  it('leaves out what is not an application email or has no employer', () => {
+    expect(found('Ivan <ivan@gmail.com>', 'Thanks for applying to Acme')).toBeNull()
+    expect(found('Handshake <x@notifications.joinhandshake.com>', 'Application sent to Tech Comm')).toBeNull()
+    expect(found('Ops <ops@datalabel.io>', '🥽 Upcoming AI Data Collection Opportunity – Additional Details', 'Thank you for your application to this role.')?.company).not.toBe('Additional Details')
+    expect(found('Truist <careers@truist.com>', 'Invitation to apply with Truist', 'Thank you for your interest in this role.')).toBeNull()
+    // A mailing service's domain isn't the employer.
+    expect(found('Criteria <no-reply@criteriacorp.com>', 'Your next step', 'Thank you for applying. Your application needs a test.')).toBeNull()
+    expect(found('TixTrack <no-reply@ashbyhq.com>', 'Your application to TixTrack has been received')?.company).toBe('TixTrack')
+    expect(found('Prodyna <inbound@mail.prodyna.com>', 'Full Stack Developer ( Python ) - PRODYNA')?.company).toBe('PRODYNA')
+    expect(found('CMU <events@cmu.edu>', 'Grad School Insights Webinar', 'Thank you for your interest in our graduate programs.')).toBeNull()
+    expect(found('Acme <jobs@acme.com>', 'Hello', 'We would like to schedule a call')).toBeNull()
+    expect(found('Acme <jobs@acme.com>', 'Hello', 'We have received your application.')?.company).toBe('Acme')
+    expect(discoverApplication({ from: 'Acme <jobs@acme.com>', subject: 'Interview', body: 'schedule a call about the role' }, 'Interview')).toBeNull()
+  })
+
+  it('treats a name and its longer form as one employer', () => {
+    expect(sameCompany('Scaleai', 'Scale AI')).toBe(true)
+    expect(sameCompany('Cleoindia', 'Cleo')).toBe(true)
+    expect(sameCompany('Meijer', 'Meta')).toBe(false)
+    expect(buildDiscoveryQuery(30)).toContain('-from:joinhandshake.com')
+  })
+})
+
+describe('real rejections the sync missed', async () => {
+  const { classifyEmail, matchApplication } = await import('@/core/gmail/rules')
+  const { normalizeCompany } = await import('@/shared/text')
+  const row = (company: string) => ({ key: company, appId: company, company, companyNorm: normalizeCompany(company), title: '', jobId: '', url: '', dateApplied: '2026-10-10', status: 'Received' as const, firstReply: '', lastStatusChange: '' })
+
+  it('does not find "Infor" in "regret to inform", but still finds "Scale AI" for Scaleai', () => {
+    const open = [row('Infor Careers'), row('Scaleai')]
+    const pg = { from: 'P&G Workday System <pgworkdaysystem.im@pg.com>', subject: 'P&G Careers – Application Outcome', body: 'We regret to inform you have not been chosen for this position.' }
+    expect(matchApplication(pg, open).candidates).toEqual([])
+    expect(matchApplication({ from: 'x <no-reply@ashbyhq.com>', subject: 'Thanks for applying to Scale AI', body: '' }, open).entry?.company).toBe('Scaleai')
+  })
+
+  it('reads a rejection that comes after a run of blank lines', () => {
+    const body = 'Hi Maazin,\n\n\n\nThank you for your interest in Context Labs!' + '\n'.repeat(30) + 'Although your background is impressive, we regret to inform you that we have decided to pursue other candidates for the position at this time.'
+    expect(classifyEmail('Thank you for your interest in Context Labs', body)).toBe('Rejected')
+  })
+})
+
+describe('job alerts', async () => {
+  const { classifyEmail, isJobAlert } = await import('@/core/gmail/rules')
+  it('skips "a new job matching your profile" and does not read Onsite as an interview', () => {
+    const body = 'Maazin, we have one new job that matches your profile\nHead of Marketing Automation\nMarketing · Copenhagen · Onsite'
+    expect(isJobAlert('Flatpay ApS - one new job matching your profile', body)).toBe(true)
+    expect(classifyEmail('Flatpay ApS - one new job matching your profile', body)).toBeNull()
+    expect(isJobAlert('Thanks for applying to Flatpay', 'Thanks for applying for the Data Engineer role.')).toBe(false)
+    expect(classifyEmail('Next steps', "We'd like to invite you to an onsite interview.")).toBe('Interview')
+    // Handshake's note lists other companies' jobs; a rejection may mention a talent community.
+    expect(isJobAlert("Application sent to Comtech, LLC — here's what's next", 'Your application was sent to Comtech, LLC. View application. Apply to similar jobs.', 'Handshake <hello@notifications.joinhandshake.com>')).toBe(true)
+    expect(isJobAlert('Verify your candidate account', 'Click this link to confirm your email address and complete setup for your candidate account')).toBe(true)
+    expect(isJobAlert('Bending Spoons—OTP code', 'Here is your code.')).toBe(true)
+    expect(isJobAlert('Thank You for Your Interest in The Home Depot', 'Thank you for applying.\nWe have decided to pursue other candidates.\nJoin our talent community to hear about new openings.')).toBe(false)
+  })
+})

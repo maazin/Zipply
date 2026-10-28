@@ -1,13 +1,13 @@
 // Turn a confirmed submission into a sheet row. Duplicates (same company + job ID,
 // or same posting URL) are skipped; failures go to the retry queue.
-import type { AppliedEntry, AtsName, JobRecord, Posting } from '@/shared/types'
+import type { AppliedEntry, AppStatus, AtsName, JobRecord, Posting } from '@/shared/types'
 import type { JobContext, LogResult } from '@/shared/messages'
 import { uid } from '@/shared/defaults'
 import { todayISO } from '@/shared/text'
 import { appliedKey, buildAppliedSet, canonicalUrl } from '@/core/score/applied'
 import { entryFromRecord } from '@/core/sheets/layout'
 import { db } from '@/lib/db'
-import { appendRecord } from './sheets'
+import { appendRecord, FROM_EMAIL } from './sheets'
 import { enqueue } from './queue'
 import { NotConnectedError } from './google'
 
@@ -78,6 +78,11 @@ export async function logJob(job: JobContext, dateApplied?: string): Promise<Log
   // Logged later (from "Since last time"): the application date is when you filled it.
   const rec = recordFrom(job, job.filledAt && Date.now() - job.filledAt < 30 * 86_400_000 ? new Date(job.filledAt) : new Date())
   if (dateApplied) Object.assign(rec, { dateApplied, lastStatusChange: dateApplied })
+  return saveRecord(rec)
+}
+
+/** Into the local cache, then the sheet (or the retry queue). */
+async function saveRecord(rec: JobRecord): Promise<LogResult> {
   const entry = entryFromRecord(rec)
   // Record locally first, so the already-applied check works even offline.
   await db.applied.put(entry)
@@ -90,6 +95,23 @@ export async function logJob(job: JobContext, dateApplied?: string): Promise<Log
     await enqueue('append', rec, e instanceof Error ? e.message : String(e))
     return { ok: true, queued: true, appId: rec.appId, error: e instanceof NotConnectedError ? 'Saved; it will reach your sheet once Google is connected.' : undefined }
   }
+}
+
+/**
+ * An application found in your email that the sheet doesn't have: made before
+ * Zipply or without it. A confirmation dates it; a rejection alone leaves the
+ * date blank, since the email doesn't say when you applied.
+ */
+export async function logFromEmail(d: { company: string; title: string; ats: AtsName; status: AppStatus; date: string; subject: string }): Promise<LogResult> {
+  const rec = recordFrom(bareContext(d.ats, '', { ...bareContext(d.ats, '', null).posting, company: d.company, title: d.title }))
+  Object.assign(rec, {
+    dateApplied: d.status === 'Rejected' ? '' : d.date,
+    status: d.status,
+    firstReply: d.date,
+    lastStatusChange: d.date,
+    notes: `${FROM_EMAIL}: "${d.subject.slice(0, 80)}"`,
+  })
+  return saveRecord(rec)
 }
 
 /** With nothing logged yet, applications the site reports go back this far. */

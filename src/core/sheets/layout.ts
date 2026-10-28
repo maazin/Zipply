@@ -4,7 +4,7 @@
  */
 import type { AppliedEntry, AppStatus, JobRecord } from '@/shared/types'
 import { normalizeCompany, toISODate } from '@/shared/text'
-import { appliedKey } from '../score/applied'
+import { entryKey } from '../score/applied'
 
 export const APPS = 'Applications'
 
@@ -59,7 +59,7 @@ export function toRow(r: JobRecord): (string | number)[] {
 
 export function entryFromRecord(r: JobRecord, row?: number): AppliedEntry {
   return {
-    key: appliedKey(r.company, r.jobId, r.url),
+    key: entryKey(r.company, r.jobId, r.url, r.appId),
     appId: r.appId,
     company: r.company,
     companyNorm: normalizeCompany(r.company),
@@ -70,6 +70,7 @@ export function entryFromRecord(r: JobRecord, row?: number): AppliedEntry {
     status: r.status,
     firstReply: r.firstReply,
     lastStatusChange: r.lastStatusChange,
+    ats: r.ats,
     row,
   }
 }
@@ -94,10 +95,10 @@ export function readStatus(s: string): AppStatus {
 export function parseRows(values: string[][], firstRow = 2): AppliedEntry[] {
   const out: AppliedEntry[] = []
   values.forEach((v, i) => {
-    const [appId, dateApplied, company, title, , jobId, , url, , , , , status, firstReply, lastStatusChange] = v.map((x) => String(x ?? ''))
+    const [appId, dateApplied, company, title, , jobId, ats, url, , , , , status, firstReply, lastStatusChange] = v.map((x) => String(x ?? ''))
     if (!appId && !company) return
     out.push({
-      key: appliedKey(company, jobId, url),
+      key: entryKey(company, jobId, url, appId),
       appId,
       company,
       companyNorm: normalizeCompany(company),
@@ -109,6 +110,7 @@ export function parseRows(values: string[][], firstRow = 2): AppliedEntry[] {
       status: readStatus(status),
       firstReply: toISODate(firstReply),
       lastStatusChange: toISODate(lastStatusChange),
+      ats,
       row: firstRow + i,
     })
   })

@@ -4,7 +4,7 @@
  * phrase table drives an automatic forward-only status machine instead of a
  * batch the user approves, with conflicts and offers routed to manual review.
  */
-import type { AppStatus, AppliedEntry } from '@/shared/types'
+import type { AppStatus, AppliedEntry, AtsName } from '@/shared/types'
 import { findBadWord, keywordInText, normalizeCompany } from '@/shared/text'
 
 export const STATUS_ORDER: AppStatus[] = ['Applied', 'Received', 'Assessment', 'Interview', 'Offer']
@@ -42,7 +42,8 @@ export const PHRASES: { status: AppStatus; phrases: string[] }[] = [
       'phone screen',
       'technical interview',
       'next round',
-      'onsite',
+      // Not "onsite" alone: job listings say "Copenhagen · Onsite".
+      'onsite interview',
       'on-site interview',
       'final round',
       'schedule an interview',
@@ -126,7 +127,7 @@ export const ATS_SENDER_DOMAINS = [
 const GENERIC_TITLE = /^(apply|apply now|application|job application|careers?|jobs?|job|position|role|opening|untitled)$/i
 
 /** The job title as whole words in the email ("apply" is not in "applying"). */
-function titleIn(title: string, text: string): boolean {
+export function titleIn(title: string, text: string): boolean {
   const t = title.trim()
   return t.length >= 4 && !GENERIC_TITLE.test(t) && keywordInText(t, text)
 }
@@ -153,11 +154,32 @@ function atsCompany(from: string): string {
 }
 
 /**
+ * A job alert or "jobs matching your profile" mail from a company you applied to:
+ * it says nothing about your application, and its listings read like interview
+ * ("Onsite") or offer ("what we offer") wording.
+ */
+const JOB_ALERT = /\b(new jobs? (?:that )?match(?:es|ing)?|jobs? (?:matching|that match(?:es)?) your profile|job alerts?|recommended jobs?|jobs? (?:you may|you might|we think you(?:'|’)ll) (?:like|be interested in)|we have (?:\w+ ){0,2}new jobs?|job digest)\b/i
+
+/** Job boards' "application sent" notes list other companies' jobs under "Apply to similar jobs". */
+const BOARD_LISTING = /\b(?:apply to )?similar jobs\b|\bjobs you may (?:like|be interested in)\b/i
+
+/** Account mail from a careers site: a link to verify, a code, a password reset. */
+const ACCOUNT_MAIL = /\b(verify your (?:\w+ )?(?:account|email)|confirm your email|activate your (?:\w+ )?account|verification code|one[- ]time (?:pass)?code|otp code|reset your password|password reset|sign[- ]in code)\b/i
+
+/** Mail that says nothing about an application's status, for the rules or the AI. */
+export function isJobAlert(subject: string, body: string, from = ''): boolean {
+  if (ACCOUNT_MAIL.test(subject)) return true
+  if (/@([\w-]+\.)*(joinhandshake|linkedin|indeed|ziprecruiter|glassdoor)\.com\b/i.test(from) && (/^application sent to\b/i.test(subject) || BOARD_LISTING.test(body))) return true
+  return JOB_ALERT.test(subject) || JOB_ALERT.test(body.split(/\n/).filter((l) => l.trim()).slice(0, 3).join(' '))
+}
+
+/**
  * Classify by the signal phrase in the subject or the first lines of the body
  * (a phrase deep in a forwarded thread or footer is not a signal).
  */
 export function classifyEmail(subject: string, body: string): AppStatus | null {
-  const head = `${subject}\n${body.split(/\n/).slice(0, 25).join('\n')}`.slice(0, 4000)
+  // 25 lines of text: some senders (BambooHR) put a dozen blank lines between paragraphs.
+  const head = `${subject}\n${body.split(/\n/).filter((l) => l.trim()).slice(0, 25).join('\n')}`.slice(0, 4000)
   const sentences = head.split(/(?<=[.!?])\s+|\n+/)
   // Rejections are worded many ways and usually open with "thank you for applying",
   // which would otherwise read as Received.
@@ -257,8 +279,9 @@ export function matchApplication(email: EmailParts, open: AppliedEntry[]): { ent
       if (domainCo && (domainCo === co || squash(domainCo) === squash(co) || (squash(co).length >= 4 && squash(domainCo).startsWith(squash(co))))) company += 3
       if (display.length >= 3 && (display.includes(co) || co.includes(display))) company += 2
       if (new RegExp(`(^|[^a-z0-9])${co.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`).test(text)) company += 2
-      // "Scaleai" in the sheet, "Scale AI" in the email.
-      else if (squash(co).length >= 5 && squash(text.replace(/[^a-z0-9]+/g, ' ')).includes(squash(co))) company += 2
+      // "Scaleai" in the sheet, "Scale AI" in the email: the same letters, spaced, as
+      // whole words. Not inside a word: "Infor" is in "regret to inform".
+      else if (squash(co).length >= 5 && spaced(squash(co)).test(text)) company += 2
       if (!company) return { e, s: 0 }
       let s = company
       if (e.jobId.length >= 5 && keywordInText(e.jobId, text)) s += 3
@@ -276,6 +299,11 @@ export function matchApplication(email: EmailParts, open: AppliedEntry[]): { ent
     return { entry: null, candidates: scored.map((x) => x.e) }
   }
   return { entry: scored[0].e, candidates: [scored[0].e] }
+}
+
+/** "scaleai" → matches "scale ai", "scale-ai" and "scaleai"; "cleoindia" → "cleo (india)". Whole words. */
+function spaced(word: string): RegExp {
+  return new RegExp(`(^|[^a-z0-9])${[...word].map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^a-z0-9]{0,2}')}([^a-z0-9]|$)`)
 }
 
 /** Gmail search query for the last 30 days (from gmail-sync.md step 3). */
@@ -296,4 +324,105 @@ export function buildQueries(companies: string[], days = 30): string[] {
   const out = [buildQuery(names.slice(0, NAMES_PER_QUERY), days)]
   for (let i = NAMES_PER_QUERY; i < names.length; i += NAMES_PER_QUERY) out.push(buildQuery(names.slice(i, i + NAMES_PER_QUERY), days, false))
   return out
+}
+
+// ---------- Applications made outside Zipply ----------
+
+/** Personal mail and job boards: the sender doesn't name the employer, or the board logs it. */
+const NOT_EMPLOYER = /(^|\.)(gmail|googlemail|outlook|hotmail|live|yahoo|icloud|me|aol|proton|protonmail|joinhandshake|linkedin|indeed|glassdoor|ziprecruiter|wellfound|substack|climatebase)\.[a-z.]+$/
+
+/**
+ * Hiring and mailing services that send for an employer: their domain is not the
+ * employer's name ("inbound@…", "kajabimail", "hibob", an assessment vendor).
+ */
+const MAILERS = /(^|\.)(comeet|comeet-notifications|hibob|criteriacorp|kajabimail|mailgun|sendgrid|mandrillapp|amazonses|jobylon|join|homerun|freshteam|zohorecruit|manatal|dover|paylocity|paycomonline|ultipro|ukg|oraclecloud|taleo|successfactors|eightfold|phenom|avature|hackerrank|codility|codesignal|hirevue|mailchimp|hubspot)\.[a-z.]+$|^(inbound|mail|email|notifications?|noreply|no-reply)\./
+
+const ATS_NAMES: [RegExp, AtsName][] = [
+  [/ashbyhq\.com$/, 'Ashby'],
+  [/greenhouse(-mail)?\.io$/, 'Greenhouse'],
+  [/lever\.co$/, 'Lever'],
+  [/myworkday(jobs)?\.com$/, 'Workday'],
+  [/icims\.com$/, 'iCIMS'],
+  [/smartrecruiters\.com$/, 'SmartRecruiters'],
+]
+
+/** "Thanks for applying to Boosters", "your application at Wayve - ML Engineer", "Jobs at Lenovo", "P&G Careers – Application Outcome". */
+const SUBJECT_COMPANY: RegExp[] = [
+  /\b(?:applying|applied|application|apply|interest)\s+(?:to|in|with)\s+(?:join(?:ing)?\s+)?(?:the\s+)?(.+?)\s*(?:[!|:–—?]|\s-\s|\s+(?:has|have|was|is|for|as)\b|$)/i,
+  /\bat\s+(.+?)\s*(?:[!|:–—?]|\s-\s|\s+(?:has|have|was|is|for|as)\b|$)/i,
+  /^(.+?)\s+(?:careers|recruiting|hiring)\b/i,
+  /^(.+?)\s*\|\s*(?:thank|thanks|your application|application)/i,
+  // "Full Stack Developer (Python) - PRODYNA": the role, then the company.
+  /\s[-–—]\s+([A-Z][\w&.' ]{1,38})$/,
+]
+
+/** An invitation or a job alert, not an application you made. */
+const NOT_APPLIED = /\b(invitation to apply|invite you to apply|invited to apply|apply now|jobs? (?:for you|alert|recommendations?)|recommended jobs|new jobs?|we'?re hiring|is hiring)\b/i
+
+/** What a captured company can't be: a role, a pronoun, a phrase. */
+const NOT_COMPANY = /^(us|our team|the team|this role|the role|the position|this position|joining|working|a |an |the |your |our )|\b(engineer|developer|analyst|intern(ship)?|position|role|scientist|manager|designer|candidate|thanks?|thank you|application|interest|update|regarding|next steps?|details|opportunit(?:y|ies)|information|reminder|invitation|confirmation|offer)s?\b/i
+
+/** Words that make a sender name a team rather than a person: "Lenovo Talent Acquisition". */
+const TEAM_WORDS = /\s*\b(talent acquisition|hiring team|recruiting team|recruitment team|recruiting|recruitment|careers|hiring|talent|team|hr|people)\b.*$/i
+
+/** About a job application, not a webinar or a grad-school "application". */
+const JOB_CONTEXT = /\b(your (?:job )?application|your candidacy|for applying|you applied|application (?:for|to|at|with)|(?:the|this) (?:[\w-]+ ){0,4}(?:position|role|opening)|job)\b/i
+
+function cleanCompany(s: string): string {
+  const c = s.replace(/[\s.,;'"“”’]+$/, '').replace(/^[\s'"“”]+/, '').trim()
+  return c.length >= 2 && c.length <= 40 && !NOT_COMPANY.test(c) && normalizeCompany(c).length >= 2 ? c : ''
+}
+
+const capitalize = (s: string) => s.replace(/^\w/, (c) => c.toUpperCase())
+
+function senderName(from: string): string {
+  return from.replace(/<.*>/, '').replace(/"/g, '').trim()
+}
+
+export interface Discovered {
+  company: string
+  title: string
+  ats: AtsName
+}
+
+/**
+ * An application this email is about, made without Zipply: a confirmation or a
+ * rejection whose sender or subject names the company. Null when it isn't clearly
+ * an application email or the employer can't be told.
+ */
+export function discoverApplication(email: EmailParts, status: AppStatus | null): Discovered | null {
+  if (status !== 'Received' && status !== 'Rejected') return null
+  const domain = senderDomain(email.from)
+  if (!domain || NOT_EMPLOYER.test(domain)) return null
+  const head = `${email.subject}\n${email.body.split(/\n/).filter((l) => l.trim()).slice(0, 25).join('\n')}`
+  if (!JOB_CONTEXT.test(head) || NOT_APPLIED.test(email.subject)) return null
+  const mailer = MAILERS.test(domain)
+
+  let company = ''
+  for (const re of SUBJECT_COMPANY) {
+    const m = email.subject.match(re)
+    if (m && (company = cleanCompany(m[1]))) break
+  }
+  const team = senderName(email.from)
+  if (!company && TEAM_WORDS.test(team)) company = cleanCompany(team.replace(TEAM_WORDS, ''))
+  // A domain name ("homedepot") only when it's the employer's own.
+  if (!company && !mailer) company = cleanCompany(capitalize(domainCompany(domain) || atsCompany(email.from)))
+  if (!company) return null
+
+  const title = email.subject.match(/\b(?:applying|application|applied) for (?:the )?(.+?)(?:\s+(?:at|with|position|role)\b|[!|:–—]|\s-\s|$)/i)?.[1] ?? email.subject.match(/\sat\s+.+?\s-\s+(.+)$/i)?.[1] ?? ''
+  return { company, title: title.trim(), ats: ATS_NAMES.find(([re]) => re.test(domain))?.[1] ?? 'Other' }
+}
+
+/** One name is the other, or begins it ("Cleo" and "Cleo India"); for rows that might be the same employer. */
+export function sameCompany(a: string, b: string): boolean {
+  const x = normalizeCompany(a).replace(/ /g, '')
+  const y = normalizeCompany(b).replace(/ /g, '')
+  if (!x || !y) return false
+  return x === y || (Math.min(x.length, y.length) >= 4 && (x.startsWith(y) || y.startsWith(x)))
+}
+
+/** Confirmations and rejections from anyone, for applications the sheet doesn't have yet. */
+export function buildDiscoveryQuery(days: number): string {
+  const phrases = ['thank you for applying', 'thanks for applying', 'your application', 'your candidacy', 'regret to inform', 'other candidates', 'thank you for your interest', 'application received']
+  return `newer_than:${days}d -in:sent -in:drafts -from:joinhandshake.com -from:linkedin.com {${phrases.map((p) => `"${p}"`).join(' ')}}`
 }

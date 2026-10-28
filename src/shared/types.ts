@@ -273,6 +273,8 @@ export interface AppliedEntry {
   status: AppStatus
   firstReply: string
   lastStatusChange: string
+  /** The hiring system, as the sheet's ATS column says. */
+  ats?: string
   /** 1-based sheet row, when known. */
   row?: number
 }
@@ -351,6 +353,8 @@ export interface Settings {
   lastGmailSync: number
   /** Gmail rules version the processed-email list was built with; older lists are rescanned. */
   gmailRulesVersion: number
+  /** Applications found in email go back to this date (two weeks before the first one Zipply logged); '' until the first sync. */
+  gmailDiscoverSince: string
   /** Formatting fixes applied to the sheet (see repairFormats). */
   sheetFormatVersion: number
   encrypted: boolean

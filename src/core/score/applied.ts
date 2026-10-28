@@ -26,6 +26,14 @@ export function appliedKey(company: string, jobId: string, url: string): string 
   return jobId ? `${c}|${jobId.trim().toLowerCase()}` : `url|${canonicalUrl(url)}`
 }
 
+/**
+ * The local key for one application: its job, else its posting, else the row
+ * itself. Rows with neither (found in email) all keyed "url|" and overwrote each other.
+ */
+export function entryKey(company: string, jobId: string, url: string, appId: string): string {
+  return jobId.trim() || url.trim() ? appliedKey(company, jobId, url) : `row|${appId}`
+}
+
 /** The lookup set, like get_applied_job_ids but keyed for any ATS. */
 export function buildAppliedSet(entries: AppliedEntry[]): Set<string> {
   const s = new Set<string>()

@@ -324,3 +324,24 @@ export async function writeStatus(u: StatusUpdate): Promise<void> {
     { method: 'PUT', body: JSON.stringify({ values: [[u.status, u.firstReply, u.lastStatusChange]] }) },
   )
 }
+
+/** The note on rows added from email; see logFromEmail. */
+export const FROM_EMAIL = 'Added from your email'
+
+/**
+ * Delete the rows Gmail sync added from email. Version 6 of its rules added some
+ * twice and named others after a mailing service, so they're removed and found again.
+ */
+export async function removeEmailRows(): Promise<number> {
+  const id = await ensureSheet()
+  const meta = await gfetch<{ sheets: { properties: { sheetId: number; title: string } }[] }>(`${BASE}/${id}?fields=sheets.properties(sheetId,title)`, S)
+  const sheetId = meta.sheets.find((s) => s.properties.title === APPS)?.properties.sheetId
+  if (sheetId == null) return 0
+  const notes = await gfetch<{ values?: string[][] }>(`${BASE}/${id}/values/${encodeURIComponent(`${APPS}!${LAST_COL}:${LAST_COL}`)}`, S)
+  const rows = (notes.values ?? []).map((r, i) => (String(r[0] ?? '').startsWith(FROM_EMAIL) ? i : -1)).filter((i) => i > 0)
+  if (!rows.length) return 0
+  // Bottom up, so each index is still right when its turn comes.
+  const requests = rows.reverse().map((i) => ({ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: i, endIndex: i + 1 } } }))
+  await gfetch(`${BASE}/${id}:batchUpdate`, S, { method: 'POST', body: JSON.stringify({ requests }) })
+  return rows.length
+}

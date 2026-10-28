@@ -85,6 +85,7 @@ export const DEFAULT_SETTINGS: Settings = {
   gmailEnabled: false,
   lastGmailSync: 0,
   gmailRulesVersion: 0,
+  gmailDiscoverSince: '',
   sheetFormatVersion: 0,
   encrypted: false,
 }
