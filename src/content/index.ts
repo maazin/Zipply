@@ -161,6 +161,10 @@ function main() {
   // Idle pages are re-checked at most every 2 s, so busy sites stay fast.
   let timer: ReturnType<typeof setTimeout> | undefined
   let lastIdleCheck = 0
+  // Waits for the page to settle, but no longer than this: Workday keeps
+  // changing the page, and a plain debounce never ran on its later steps.
+  const MAX_WAIT = 2500
+  let changedSince = 0
   const observer = new MutationObserver(() => {
     if (orphaned()) return observer.disconnect()
     if (!active && !reported) {
@@ -174,8 +178,10 @@ function main() {
       return
     }
     clearTimeout(timer)
+    changedSince ||= Date.now()
     timer = setTimeout(async () => {
       timer = undefined
+      changedSince = 0
       await report()
       const auto = autoFill()
       if (!auto || filling) return
@@ -183,7 +189,7 @@ function main() {
       if (fresh.length >= 2) {
         await run(auto.resumeId, true).catch(() => undefined)
       }
-    }, 900)
+    }, Math.min(900, Math.max(0, MAX_WAIT - (Date.now() - changedSince))))
   })
   observer.observe(document.documentElement, { childList: true, subtree: true })
 

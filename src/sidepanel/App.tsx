@@ -126,6 +126,16 @@ export function App() {
     load()
   }, [load, nonce])
 
+  /** The page's form changed (a new step, or done loading): look again, keeping the job and the fill report. */
+  const rescan = useCallback(async (tabId: number) => {
+    const frameIds = await ensureInjected(tabId)
+    if (!frameIds) return
+    const scan = await scanFrames(tabId, frameIds)
+    setFrames(scan.frames)
+    if (scan.ats !== 'Other') setAts(scan.ats)
+    setArmed((await tabState(tabId)).auto)
+  }, [])
+
   // Follow the active tab.
   useEffect(() => {
     const onActivated = () => setNonce((n) => n + 1)
@@ -141,19 +151,26 @@ export function App() {
       if (info.status === 'complete') soon(0)
       else if (info.url) soon(1500)
     }
+    let scanTimer: ReturnType<typeof setTimeout> | undefined
     const onJob = (msg: { type?: string; tabId?: number }) => {
-      if (msg?.type === 'tab:job' && msg.tabId === tab?.id) soon(300)
+      if (msg?.tabId !== tab?.id) return
+      if (msg?.type === 'tab:job') soon(300)
+      if (msg?.type === 'tab:frames' && tab?.id != null) {
+        clearTimeout(scanTimer)
+        scanTimer = setTimeout(() => void rescan(tab.id!).catch(() => undefined), 300)
+      }
     }
     chrome.runtime.onMessage.addListener(onJob)
     chrome.tabs.onActivated.addListener(onActivated)
     chrome.tabs.onUpdated.addListener(onUpdated)
     return () => {
       clearTimeout(timer)
+      clearTimeout(scanTimer)
       chrome.tabs.onActivated.removeListener(onActivated)
       chrome.tabs.onUpdated.removeListener(onUpdated)
       chrome.runtime.onMessage.removeListener(onJob)
     }
-  }, [tab?.id])
+  }, [tab?.id, rescan])
 
   // Live updates from the page (new steps filled, fields edited) and logging.
   useEffect(() => {

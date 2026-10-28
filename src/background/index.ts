@@ -223,10 +223,15 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
     // ----- from content scripts -----
     case 'frame:status': {
       if (tabId == null) return null
-      const frames = (await getFrames(tabId)).filter((f) => f.frameId !== (sender.frameId ?? 0))
+      const all = await getFrames(tabId)
+      const prev = all.find((f) => f.frameId === (sender.frameId ?? 0))
+      const frames = all.filter((f) => f !== prev)
       frames.push({ frameId: sender.frameId ?? 0, ats: msg.ats, fields: msg.fields, confirmation: msg.confirmation, url: sender.url ?? '' })
       await session.set(framesKey(tabId), frames)
       await updateBadge(tabId)
+      // A new step of a multi-page form (Workday) often keeps the address: tell an open side panel.
+      if (prev?.fields !== msg.fields || prev?.confirmation !== msg.confirmation)
+        chrome.runtime.sendMessage({ type: 'tab:frames', tabId }).catch(() => undefined)
       // Remember the posting so a later confirmation page can be logged even if
       // the panel was never opened.
       if (!msg.confirmation && (msg.posting || msg.fields > 0)) await rememberJob(tabId, msg.ats, msg.posting)

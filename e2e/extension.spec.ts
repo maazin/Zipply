@@ -542,6 +542,41 @@ test('"Fill the application when it opens" on a posting page fills the form afte
   await page.close()
 })
 
+test('A multi-step form that keeps changing and its address fills each step, and the panel keeps up', async () => {
+  // Like Workday: a clock that never stops changing the page, and "Next" swaps
+  // in a loading screen, then the next step, at the same address.
+  const form = readFileSync(join(FIX, 'custom.html'), 'utf8').match(/<form>[\s\S]*<\/form>/)![0]
+  await context.route('https://apply.stepco.net/**', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: `<title>Apply | Stepco</title><h1>Data Analyst</h1><span id="clock"></span><div id="step">${form}</div><button id="next">Next</button>
+        <script>
+          setInterval(() => { document.getElementById('clock').textContent = String(Date.now()) }, 100)
+          document.getElementById('next').onclick = () => {
+            document.getElementById('step').innerHTML = '<p>Loading…</p>'
+            setTimeout(() => { document.getElementById('step').innerHTML = ${JSON.stringify(form)} }, 1500)
+          }
+        </script>`,
+    }),
+  )
+  const page = await context.newPage()
+  await page.goto('https://apply.stepco.net/apply')
+  const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://apply.stepco.net/*' }))[0].id!)
+  const panel = await context.newPage()
+  await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
+  await panel.getByRole('button', { name: 'Fill this page' }).click()
+  await expect(page.locator('input[name="applicant_given"]')).toHaveValue('Ada', { timeout: 10_000 })
+
+  await page.click('#next')
+  // The loading screen has no form: the panel says so, then catches up when the step appears.
+  await expect(panel.getByRole('button', { name: 'Will fill the application' })).toBeVisible({ timeout: 10_000 })
+  await expect(page.locator('input[name="applicant_given"]')).toHaveValue('Ada', { timeout: 10_000 })
+  await expect(page.locator('input[name="contact"]')).toHaveValue('ada@example.com')
+  await expect(panel.getByRole('button', { name: 'Fill this page' })).toBeEnabled({ timeout: 10_000 })
+  await panel.close()
+  await page.close()
+})
+
 test('"Since last time" is one line until you open it', async () => {
   const page = await context.newPage()
   await page.goto('https://jobs.lever.co/globex/1b2c3d4e/apply')
