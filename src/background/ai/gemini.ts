@@ -2,11 +2,27 @@
 // no billing account, so a paid call is impossible.
 import { GoogleGenAI } from '@google/genai'
 
+/**
+ * Gemini said "too many requests". The free tier has a per-minute limit as well
+ * as the daily one, and only the daily one means "spent until tomorrow".
+ */
 export class QuotaError extends Error {
-  constructor(model: string) {
-    super(`${model} hit its free daily limit`)
+  constructor(
+    model: string,
+    /** The daily quota, not the per-minute one. */
+    readonly daily: boolean,
+    /** How long Google says to wait, for a per-minute limit. */
+    readonly retryMs: number,
+  ) {
+    super(daily ? `${model} hit its free daily limit` : `${model} is rate-limited for ${Math.round(retryMs / 1000)} s`)
     this.name = 'QuotaError'
   }
+}
+
+/** Read the quota and the wait from Gemini's error ("GenerateRequestsPerDay…", "retryDelay": "37s"). */
+export function quotaFrom(model: string, msg: string): QuotaError {
+  const wait = msg.match(/retry ?delay"?\s*[:=]\s*"?(\d+(?:\.\d+)?)s/i) ?? msg.match(/retry in (\d+(?:\.\d+)?)\s*s/i)
+  return new QuotaError(model, /per ?day/i.test(msg), wait ? Math.ceil(Number(wait[1]) * 1000) : 30_000)
 }
 
 let client: { key: string; ai: GoogleGenAI } | null = null
@@ -42,7 +58,7 @@ export async function geminiGenerate(req: GeminiRequest): Promise<string> {
   } catch (e) {
     const status = (e as { status?: number })?.status
     const msg = e instanceof Error ? e.message : String(e)
-    if (status === 429 || /RESOURCE_EXHAUSTED|quota|rate limit/i.test(msg)) throw new QuotaError(req.model)
+    if (status === 429 || /RESOURCE_EXHAUSTED|quota|rate limit/i.test(msg)) throw quotaFrom(req.model, msg)
     throw e
   }
 }

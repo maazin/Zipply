@@ -2,7 +2,7 @@
 // Flash → Flash-Lite → Nano → you. It never retries into a paid tier (there is none).
 import { getGeminiKey, getSettings } from '@/lib/repo'
 import { nanoPrompt, nanoStatus, type NanoStatus } from '@/lib/nano'
-import { bumpUsage as bump, usageCount } from '@/lib/usage'
+import { bumpUsage as bump, isSpent, markSpent, usageCount } from '@/lib/usage'
 import { logError } from '@/lib/errlog'
 import { geminiGenerate, QuotaError } from './gemini'
 
@@ -70,38 +70,63 @@ export interface AiResult {
 }
 
 /**
+ * Models resting after a per-minute limit, until this time. In memory only:
+ * a restarted worker forgets them, and Gemini just says so again.
+ */
+const resting = new Map<string, number>()
+/** Wait out a per-minute limit when it's this short, rather than give up. */
+const MAX_WAIT_MS = 30_000
+
+/**
  * Run a job down its chain. Returns null when every model is unavailable or
  * spent. `accept` rejects an unusable answer so the next model gets a try.
  */
 export async function runAi(job: Job, system: string, prompt: string, schema?: object, accept: (text: string) => boolean = () => true): Promise<AiResult | null> {
   const s = await getSettings()
   const apiKey = CHAINS[job].some((t) => t !== 'nano') ? await getGeminiKey().catch(() => '') : ''
-  for (const tier of CHAINS[job]) {
-    try {
-      if (tier === 'nano') {
-        const text = await runNano(system, prompt, schema)
-        if (text && accept(text)) {
-          await bump('gemini-nano')
-          return { text, model: 'gemini-nano' }
+  for (let round = 0; round < 2; round++) {
+    let soonest = Infinity
+    for (const tier of CHAINS[job]) {
+      try {
+        if (tier === 'nano') {
+          const text = await runNano(system, prompt, schema)
+          if (text && accept(text)) {
+            await bump('gemini-nano')
+            return { text, model: 'gemini-nano' }
+          }
+          continue
         }
-        continue
+        if (!apiKey) continue
+        const model = s.models[tier]
+        if ((await isSpent(model)) || (await usageCount(model)) >= s.dailyLimits[tier]) continue
+        const until = resting.get(model) ?? 0
+        if (until > Date.now()) {
+          soonest = Math.min(soonest, until)
+          continue
+        }
+        await bump(model)
+        const text = await geminiGenerate({ apiKey, model, system, prompt, schema, temperature: job === 'write' ? 0.75 : 0.1 })
+        if (!accept(text)) continue
+        return { text, model }
+      } catch (e) {
+        if (e instanceof QuotaError) {
+          const model = s.models[tier as 'flash' | 'flashLite']
+          // Spent for today: stop trying until tomorrow. Too many this minute: rest as long as Google says.
+          if (e.daily) await markSpent(model)
+          else {
+            resting.set(model, Date.now() + e.retryMs)
+            soonest = Math.min(soonest, Date.now() + e.retryMs)
+          }
+          continue
+        }
+        console.warn(`[zipply] ${tier} failed`, e)
+        void logError(`ai ${tier}`, e)
       }
-      if (!apiKey) continue
-      const model = s.models[tier]
-      if ((await usageCount(model)) >= s.dailyLimits[tier]) continue
-      await bump(model)
-      const text = await geminiGenerate({ apiKey, model, system, prompt, schema, temperature: job === 'write' ? 0.75 : 0.1 })
-      if (!accept(text)) continue
-      return { text, model }
-    } catch (e) {
-      if (e instanceof QuotaError) {
-        // Spent for today: mark it so we stop trying until tomorrow.
-        await bump(s.models[tier as 'flash' | 'flashLite'], s.dailyLimits[tier as 'flash' | 'flashLite'])
-        continue
-      }
-      console.warn(`[zipply] ${tier} failed`, e)
-      void logError(`ai ${tier}`, e)
     }
+    // Every model is only resting for a minute: wait once instead of failing.
+    const wait = soonest - Date.now()
+    if (round > 0 || !(wait <= MAX_WAIT_MS)) break
+    await new Promise((r) => setTimeout(r, Math.max(0, wait) + 250))
   }
   return null
 }

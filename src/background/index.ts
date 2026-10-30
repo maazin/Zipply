@@ -6,6 +6,7 @@ import { canonicalUrl } from '@/core/score/applied'
 import type { ContentToBg, FillContext, FrameInfo, JobContext, PageToBg } from '@/shared/messages'
 import { LockedError } from '@/lib/keys'
 import { getAnswerBank, getProfile, getResume, getSettings, listResumes, saveAnswer, markAnswerUsed, updateSettings } from '@/lib/repo'
+import { clearOldLimitMarks } from '@/lib/usage'
 import { db } from '@/lib/db'
 import { session } from '@/lib/store'
 import { aiReady } from './ai/router'
@@ -41,6 +42,11 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   // Chrome doesn't put an updated content script into tabs that were already
   // open, and the old copy there can't reach the extension any more.
   if (reason === 'install' || reason === 'update') await injectIntoOpenTabs()
+  // Earlier builds took a per-minute AI limit for the daily one and shut the model off until tomorrow.
+  if (reason === 'update') {
+    const { models, dailyLimits } = await getSettings()
+    await clearOldLimitMarks({ [models.flash]: dailyLimits.flash, [models.flashLite]: dailyLimits.flashLite }).catch(() => undefined)
+  }
   if (reason === 'install') await chrome.runtime.openOptionsPage()
 })
 
@@ -345,7 +351,7 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
     case 'ai:cover': {
       const job = await getJob(msg.tabId)
       if (!job) return { error: 'No job found on this page.' }
-      return (await coverLetter(job.posting, await getProfile())) ?? { error: 'No AI model available right now.' }
+      return (await coverLetter(job.posting, await getProfile())) ?? { error: "The AI couldn't write it just now. Try again in a minute; if it keeps failing, check your Gemini key on the Profile page." }
     }
     case 'ai:tips': {
       const job = await getJob(msg.tabId)

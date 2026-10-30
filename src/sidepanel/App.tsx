@@ -563,7 +563,8 @@ function CoverLetter({ tabId }: { tabId: number }) {
         setBusy(true)
         setNote('')
         const r = await send<AiText | { error: string }>({ type: 'ai:cover', tabId })
-        setBusy(false)
+          .catch((e) => ({ error: e instanceof Error ? e.message : String(e) }))
+          .finally(() => setBusy(false))
         if (isError(r)) setNote(r.error)
         else {
           setText(r.text)

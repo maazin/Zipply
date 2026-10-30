@@ -13,6 +13,25 @@ export async function bumpUsage(model: string, to?: number): Promise<void> {
   await db.usage.put({ id, date: todayISO(), model, count: to ?? (cur?.count ?? 0) + 1 })
 }
 
+/** Gemini said a model's free daily quota is spent: skip it until tomorrow. */
+export async function markSpent(model: string): Promise<void> {
+  await db.usage.put({ id: `${todayISO()}|${model}|spent`, date: todayISO(), model: `${model}|spent`, count: 1 })
+}
+
+export async function isSpent(model: string): Promise<boolean> {
+  return Boolean(await db.usage.get(`${todayISO()}|${model}|spent`))
+}
+
+/**
+ * Earlier builds marked a model spent by setting its count to the daily limit,
+ * also for a per-minute limit, which shut it off for the rest of the day. A
+ * count exactly at the limit is one of those marks: clear it.
+ */
+export async function clearOldLimitMarks(limits: Record<string, number>): Promise<void> {
+  const rows = await db.usage.where('date').equals(todayISO()).toArray()
+  for (const r of rows) if (limits[r.model] != null && r.count === limits[r.model]) await db.usage.put({ ...r, count: 0 })
+}
+
 export async function usageToday(): Promise<{ model: string; count: number; limit: number | null }[]> {
   const s = await getSettings()
   const rows = await db.usage.where('date').equals(todayISO()).toArray()
