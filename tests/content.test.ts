@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { FillContext } from '@/shared/messages'
+import type { FieldReport } from '@/shared/types'
 import { collectFields } from '@/content/dom/collect'
 import { fillPage } from '@/content/fill'
 import { pickAdapter } from '@/content/adapters'
@@ -224,6 +225,28 @@ describe('Oracle Recruiting Cloud', () => {
     expect(oracleJob(new URL('https://careers.oracle.com/en/sites/jobsearch/job/309111'))).toEqual({ site: 'jobsearch', id: '309111' })
     expect(oracleJob(new URL(ORACLE))).toEqual({ site: 'CX_1001', id: '2107' })
     expect(oracleJob(new URL('https://globex.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs'))).toBeNull()
+  })
+})
+
+describe('AI drafts', () => {
+  it("don't hold up the fill: it returns, and each draft arrives after", async () => {
+    const url = load('custom.html', 'https://careers.initech.com/jobs/42')
+    let answer: (v: unknown) => void = () => undefined
+    const send = (globalThis as unknown as { chrome: { runtime: { sendMessage: ReturnType<typeof vi.fn> } } }).chrome.runtime.sendMessage
+    send.mockImplementation(async (m: { type: string }) => (m.type === 'ai:answer' ? new Promise((r) => (answer = r)) : m.type === 'ai:map' ? { mappings: [] } : {}))
+    const drafted: FieldReport[][] = []
+    try {
+      const reports = await fillPage(pickAdapter(url, document), { ...ctx(), autoDraft: true, aiReady: true }, document, new Set(), { onDrafts: (r) => drafted.push(r) })
+      // The model hasn't answered, yet the fill is done.
+      expect(val('input[name="applicant_given"]')).toBe('Ada')
+      expect(reports.find((r) => /project/i.test(r.label))?.reason).toBe('Writing a draft…')
+      answer({ text: 'I built a pipeline that cut load times in half.', model: 'test', warnings: [] })
+      await vi.waitFor(() => expect(drafted).toHaveLength(1))
+      expect(drafted[0][0]).toMatchObject({ status: 'draft', source: 'ai-draft' })
+      expect(val('textarea[name="proj"]')).toMatch(/pipeline/)
+    } finally {
+      send.mockImplementation(async (m: unknown) => (sent.push(m), {}))
+    }
   })
 })
 

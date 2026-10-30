@@ -148,7 +148,10 @@ function main() {
     filling = true
     try {
       const ctx = await context(resumeId)
-      const reports = await fillPage(adapter, ctx, document, auto ? done : new Set())
+      // Drafts for open questions arrive afterwards, one update each.
+      const reports = await fillPage(adapter, ctx, document, auto ? done : new Set(), {
+        onDrafts: (drafted) => void send({ type: 'report:update', reports: drafted }).catch(() => undefined),
+      })
       reports.forEach((r) => r.zid && done.add(r.zid))
       send({ type: 'fill:done', reports, auto }).catch(() => undefined)
       return reports

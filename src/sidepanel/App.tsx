@@ -28,6 +28,9 @@ async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
   return tab
 }
 
+/** Longest a fill may take before the panel stops waiting (drafts don't count: they arrive later). */
+const FILL_MS = 90_000
+
 async function tabState(tabId: number) {
   return send<{ frames: FrameInfo[]; job: JobContext | null; auto: boolean; queue: number; settings: Settings }>({ type: 'tab:state', tabId })
 }
@@ -216,13 +219,19 @@ export function App() {
       const list = targets.length ? targets : frames
       let all: FieldReport[] = []
       for (const f of list) {
-        const r = await sendToFrame<{ reports: FieldReport[] } | { error: string }>(tab.id, f.frameId, { type: 'fill', resumeId })
+        // Never spin forever: what was filled stays filled either way.
+        const r = await Promise.race([
+          sendToFrame<{ reports: FieldReport[] } | { error: string }>(tab.id, f.frameId, { type: 'fill', resumeId }),
+          new Promise<never>((_, no) => setTimeout(() => no(new Error('This page took too long. What was filled stays; press Fill again for the rest.')), FILL_MS)),
+        ])
         if (isError(r)) throw new Error(r.error)
         all = all.concat(r.reports.map((x) => ({ ...x, frameId: f.frameId })))
       }
       setReports(all)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : String(e)
+      // The page moved on (the next step, or a frame reloaded) while filling: not an error.
+      if (!/message port closed|Receiving end does not exist|back\/forward cache/i.test(msg)) setError(msg)
     } finally {
       setFilling(false)
     }

@@ -8,10 +8,16 @@ import { KEY_DEF, type ProfileKey } from '@/shared/profileKeys'
 import { planFields, resolveValue, type PlanItem } from '@/core/matching/plan'
 import { shouldRemember, shouldRememberCorrection } from '@/core/answerBank'
 import { collectFields, findByZid, readValue, type Collected } from './dom/collect'
-import { humanPause, setCheckboxGroup, setChecked, setCombobox, setFile, setRadio, setSelect, setText } from './dom/setValue'
+import { humanPause, sleep, setCheckboxGroup, setChecked, setCombobox, setFile, setRadio, setSelect, setText } from './dom/setValue'
 import type { Adapter } from './adapters'
 
 const MAX_DRAFTS_PER_PAGE = 4
+/** The AI gets this long per call; a slow or stuck model never holds up the fill. */
+const AI_MAP_MS = 20_000
+const AI_DRAFT_MS = 60_000
+const within = <T>(p: Promise<T>, ms: number): Promise<T | null> => Promise.race([p, sleep(ms).then(() => null)])
+/** Questions being drafted right now, so pressing Fill again doesn't draft them twice. */
+const drafting = new Set<string>()
 
 export interface Tracked {
   c: Collected
@@ -98,7 +104,15 @@ export function refreshMissing(reports: FieldReport[], doc: Document = document)
   })
 }
 
-export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document = document, skip: Set<string> = new Set()): Promise<FieldReport[]> {
+export interface FillOptions {
+  /**
+   * Draft answers to open questions after returning, calling this as each one
+   * lands. Drafts take several AI calls each: the fill shouldn't wait on them.
+   */
+  onDrafts?: (reports: FieldReport[]) => void
+}
+
+export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document = document, skip: Set<string> = new Set(), opts: FillOptions = {}): Promise<FieldReport[]> {
   const reports: FieldReport[] = []
 
   const repeat = adapter.fillRepeating ? await adapter.fillRepeating(ctx.profile, doc, skip) : null
@@ -117,13 +131,16 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
   const leftovers = plan.filter((p) => p.action === 'unresolved' && byZid.get(p.zid)?.desc.kind !== 'file')
   const mappable = leftovers.filter((p) => !isQuestion(byZid.get(p.zid)!))
   if (ctx.aiReady && mappable.length) {
-    const res = await send<{ mappings: { id: string; key: string }[] } | { error: string }>({
-      type: 'ai:map',
-      fields: mappable.map((p) => {
-        const d = byZid.get(p.zid)!.desc
-        return { id: p.zid, label: d.label || d.ariaLabel || d.placeholder || d.name, kind: d.kind, options: d.options }
+    const res = await within(
+      send<{ mappings: { id: string; key: string }[] } | { error: string }>({
+        type: 'ai:map',
+        fields: mappable.map((p) => {
+          const d = byZid.get(p.zid)!.desc
+          return { id: p.zid, label: d.label || d.ariaLabel || d.placeholder || d.name, kind: d.kind, options: d.options }
+        }),
       }),
-    }).catch(() => null)
+      AI_MAP_MS,
+    ).catch(() => null)
     if (res && !isError(res)) {
       const usedKeys = new Set(plan.filter((p) => p.key && p.action === 'fill').map((p) => p.key))
       for (const m of res.mappings) {
@@ -138,7 +155,7 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
     }
   }
 
-  let drafts = 0
+  const toDraft: { c: Collected; label: string; at: number }[] = []
   for (const item of plan) {
     const c = byZid.get(item.zid)!
     if (item.action === 'fill') {
@@ -152,24 +169,43 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
 
     const label = c.desc.label || c.desc.ariaLabel || c.desc.placeholder
     const canDraft =
-      ctx.autoDraft && ctx.aiReady && drafts < MAX_DRAFTS_PER_PAGE && isQuestion(c) && !SENSITIVE_Q.test(label) && !readValue(c)
-    if (item.action === 'unresolved' && canDraft) {
-      drafts++
-      const maxWords = (c.el as HTMLTextAreaElement).maxLength > 0 ? Math.max(20, Math.floor((c.el as HTMLTextAreaElement).maxLength / 7)) : c.desc.kind === 'text' ? 40 : 150
-      const ai = await send<AiText | { error: string }>({ type: 'ai:answer', question: label, maxWords }).catch(() => null)
-      if (ai && !isError(ai) && ai.text) {
-        setText(c.el as HTMLElement, ai.text)
-        tracked.set(c.desc.zid, { c, source: 'ai-draft', draft: ai.text })
-        reports.push(report(c, 'draft', 'ai-draft', { reason: `Draft by ${ai.model}. Edit before you submit.`, warnings: ai.warnings }))
-        continue
-      }
-    }
+      ctx.autoDraft && ctx.aiReady && toDraft.length < MAX_DRAFTS_PER_PAGE && isQuestion(c) && !SENSITIVE_Q.test(label) && !readValue(c) && !drafting.has(c.desc.zid)
     tracked.set(c.desc.zid, { c, key: item.key, source: 'none', filled: readValue(c) })
+    if (item.action === 'unresolved' && canDraft) {
+      toDraft.push({ c, label, at: reports.length })
+      reports.push(report(c, 'skipped', 'none', { reason: 'Writing a draft…' }))
+      continue
+    }
     reports.push(report(c, 'skipped', item.source, { key: item.key, reason: item.reason }))
   }
 
   lastReports = refreshMissing(reports, doc)
+  if (!toDraft.length) return lastReports
+  const drafts = draftAll(toDraft, reports, doc, opts.onDrafts)
+  if (opts.onDrafts) return lastReports
+  await drafts
   return lastReports
+}
+
+/** Draft each open question in turn, replacing its "Writing a draft…" report. */
+async function draftAll(items: { c: Collected; label: string; at: number }[], reports: FieldReport[], doc: Document, onEach?: (reports: FieldReport[]) => void) {
+  items.forEach(({ c }) => drafting.add(c.desc.zid))
+  for (const { c, label, at } of items) {
+    try {
+      const maxWords = (c.el as HTMLTextAreaElement).maxLength > 0 ? Math.max(20, Math.floor((c.el as HTMLTextAreaElement).maxLength / 7)) : c.desc.kind === 'text' ? 40 : 150
+      const ai = await within(send<AiText | { error: string }>({ type: 'ai:answer', question: label, maxWords }), AI_DRAFT_MS).catch(() => null)
+      // You may have typed an answer while it was drafting.
+      if (ai && !isError(ai) && ai.text && !readValue(c)) {
+        setText(c.el as HTMLElement, ai.text)
+        tracked.set(c.desc.zid, { c, source: 'ai-draft', draft: ai.text })
+        reports[at] = report(c, 'draft', 'ai-draft', { reason: `Draft by ${ai.model}. Edit before you submit.`, warnings: ai.warnings })
+      } else reports[at] = report(c, 'skipped', 'none', { reason: ai && isError(ai) ? ai.error : readValue(c) ? 'You answered it' : 'No draft this time' })
+    } finally {
+      drafting.delete(c.desc.zid)
+    }
+    lastReports = refreshMissing(reports, doc)
+    onEach?.([reports[at]])
+  }
 }
 
 // ---------- answer bank capture ----------
