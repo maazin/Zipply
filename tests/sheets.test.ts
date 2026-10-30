@@ -30,6 +30,9 @@ describe('sheet layout', () => {
     const cells = JSON.stringify(data)
     // Whole columns: a range like B2:B moves down whenever a row is inserted under the header.
     expect(cells).toContain('COUNTIFS(Applications!B:B')
+    // What to do next, by month applied, and how long answers take; not the sparse columns.
+    for (const t of ['Follow up this week', 'Assessments and interviews, newest first', "How each month's applications did", 'How long answers take', 'EOMONTH(TODAY()']) expect(cells).toContain(t)
+    expect(cells).not.toMatch(/Applications!(G|J|K):/)
     expect(cells).not.toMatch(/Applications![A-Z]\d+:/)
     // "We received your application" isn't an answer.
     expect(data.flatMap((d) => d.values.flat()).join(' ')).toContain('{"Assessment","Interview","Offer","Rejected"}')
@@ -87,7 +90,6 @@ describe('sheet layout', () => {
 
     const reqs = JSON.stringify(dashboardRequests(7))
     expect(reqs.match(/addChart/g)).toHaveLength(2)
-    expect(reqs).toContain('gradientRule')
     expect(reqs).toContain('"hiddenByUser":true')
     // The cells go in the same batch, at the same places.
     const upd = dashboardCells(7) as { updateCells: { start: { rowIndex: number; columnIndex: number }; rows: { values: { userEnteredValue: object }[] }[] } }[]

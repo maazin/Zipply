@@ -81,8 +81,10 @@ async function buildDashboard(id: string, styleApps: boolean): Promise<void> {
  *    and Flow tab made outside Zipply); no verdict table or waiting list.
  * 15: applications counted by Company, not Application ID (rows added outside
  *    Zipply may have none).
+ * 16: rebuilt around what to do next: open stages, follow-ups, monthly cohorts,
+ *    how long answers take. 17: day counts as numbers; in play means moved in 30 days. 18: dates kept as text sort as dates.
  */
-const SHEET_FORMAT = 15
+const SHEET_FORMAT = 18
 
 async function repairFormats(id: string): Promise<void> {
   const version = (await getSettings()).sheetFormatVersion ?? 0

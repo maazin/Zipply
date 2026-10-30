@@ -4,17 +4,21 @@
  * counts adapted from JobSync (https://github.com/Gsync/jobsync)
  * src/actions/dashboard, MIT; staleness check from ai-job-search's gmail-sync (MIT).
  *
- * Layout (content in B:O, 14 columns; chart and list data in hidden columns Q:AK):
+ * Built on the columns every row has (company, status, dates); the ones only
+ * Zipply's own rows fill in (site, match score, verdict) are too sparse to
+ * compare by.
+ *
+ * Layout (content in B:O, 14 columns; chart and list data in hidden columns Q:AJ):
  *   2-3    banner
  *   5-7    seven cards
- *   9-15   what stands out (sentences written by formulas)
- *   17-37  where your applications went (a Sankey drawn by QuickChart)
- *   39-55  applications per week | where things stand (charts)
- *   57-64  from application to offer | which sites answer
- *   66-74  activity, last 13 weeks
- *   76-85  match score | latest answers
+ *   9-14   what stands out (sentences written by formulas)
+ *   16-25  to do: open assessments and interviews | follow up this week
+ *   27-47  where your applications went (a Sankey drawn by QuickChart)
+ *   49-65  applications per week | waiting, by days since applying (charts)
+ *   67-72  how each month's applications did
+ *   74-83  how long answers take | latest answers
  */
-import { A, ANSWERED, CHIPS, STATUSES, hex } from './layout'
+import { A, ANSWERED, CHIPS, hex } from './layout'
 
 type Cell = string | number
 export interface Block {
@@ -39,9 +43,10 @@ const I = 8
 const O = 14
 const HIDDEN = [16, 37] as const
 const WEEK = 16 // Q:S week label, answered, no answer yet
-const STAT = 20 // U:V status, count
-const LATEST = 23 // X:AA company, title, status, date
-const SITES = 33 // AH:AK site, applications, answered, interview
+const AGE = 20 // U:V days since applying, applications waiting
+const LATEST = 23 // X:AA company, role, status, date
+const OPEN = 28 // AC:AF company, role, stage, since
+const FOLLOW = 33 // AH:AJ company, role, date applied
 
 // Rows, 0-based.
 const R = {
@@ -50,17 +55,20 @@ const R = {
   card: 4,
   insightsHead: 8,
   insights: 9,
-  flowHead: 16,
-  flow: 17,
+  todoHead: 15,
+  flowHead: 26,
+  flow: 27,
   flowRows: 20,
-  chartsHead: 38,
-  charts: 39,
+  chartsHead: 48,
+  charts: 49,
   chartRows: 16,
-  t1Head: 56,
-  heatHead: 65,
-  t2Head: 75,
-  foot: 87,
+  monthsHead: 66,
+  timingHead: 73,
+  foot: 85,
 }
+/** Rows in each to-do list and in the latest answers. */
+const LIST = 8
+const INSIGHTS = 5
 
 const C = {
   ink: '#0b0b0b',
@@ -76,55 +84,74 @@ const C = {
   blue: '#2a78d6',
   blueDark: '#1c5cab',
   blueLight: '#86b6ef',
-  heatLow: '#eaf2fc',
+  blueWash: '#dfe7f3',
   good: '#006300',
   critical: '#d03b3b',
   late: '#9a5b00',
 }
 const FONT = 'Inter'
-const bar = (cell: string, color = C.blue) => `=IF(${cell}="","",SPARKLINE(${cell},{"charttype","bar";"max",1;"color1","${color}"}))`
 
 /** Formulas over the Applications tab. */
 export function metrics() {
   const date = A('Date applied')
   const status = A('Status')
   const changed = A('Last status change')
-  const ids = A('Application ID')
+  const first = A('First reply')
   const isAns = `ISNUMBER(MATCH(${status},{${ANSWERED.map((s) => `"${s}"`).join(',')}},0))`
-  const isIntv = `((${status}="Interview")+(${status}="Offer"))`
+  const isNext = `((${status}="Assessment")+(${status}="Interview")+(${status}="Offer"))`
+  const isWaiting = `((${status}="Applied")+(${status}="Received"))`
   // Rows with a company, less the header: rows added outside Zipply may have no
   // Application ID. The header row is text, so the other formulas skip it.
   const company = A('Company')
   const total = `MAX(COUNTA(${company})-1,0)`
-  const hasRow = `(LEN(${company})>0)*(ROW(${company})>1)`
-  const old = `(TODAY()-30)`
+  const dated = `ISNUMBER(${date})`
+  /** Applied/Received rows by days since applying, from a (inclusive) to b (exclusive). */
+  const waitingAged = (a: number, b?: number) =>
+    ['Applied', 'Received']
+      .map((s) => `COUNTIFS(${status},"${s}",${date},"<="&(TODAY()-${a})${b == null ? '' : `,${date},">"&(TODAY()-${b})`})`)
+      .join('+')
+  // Days from applying to the last change, for rows with both dates (negative ones are bad data).
+  const daysTo = (cond: string, end = changed) =>
+    `MEDIAN(FILTER(IFERROR(${end}-${date}),${cond},ISNUMBER(${end}),${dated},IFERROR(${end}-${date},-1)>=0))`
+  // Applications three weeks or older: young ones haven't had time to be answered.
+  const mature = `(${date}<=TODAY()-21)*${dated}`
+  // When a row last moved: its last change, else the date applied, as a number
+  // (rows typed in by hand can hold dates as text, which sort above every number).
+  const since = `IFERROR(${changed}*1,IFERROR(${date}*1,""))`
+  const recent = `IFERROR((IFERROR(${changed}*1,${date}*1)>=TODAY()-30)*1,0)`
   return {
     date,
     status,
     changed,
-    ids,
+    first,
     company,
     title: A('Job title'),
-    ats: A('ATS'),
-    url: A('Posting URL'),
-    score: A('Match score'),
-    verdict: A('Verdict'),
     isAns,
-    isIntv,
+    isNext,
+    isWaiting,
     total,
-    hasRow,
     // SUMPRODUCT, not SUM(COUNTIF(…,{list})): Sheets counts only the list's first item without ARRAYFORMULA.
     ans: `SUMPRODUCT(--${isAns})`,
-    intv: `(COUNTIF(${status},"Interview")+COUNTIF(${status},"Offer"))`,
-    offers: `COUNTIF(${status},"Offer")`,
-    waiting: `(COUNTIF(${status},"Applied")+COUNTIF(${status},"Received"))`,
-    stale: `(COUNTIFS(${status},"Applied",${date},"<="&${old})+COUNTIFS(${status},"Received",${date},"<="&${old}))`,
+    next: `(COUNTIF(${status},"Assessment")+COUNTIF(${status},"Interview")+COUNTIF(${status},"Offer"))`,
+    nextRecent: `SUMPRODUCT(${isNext}*${recent})`,
+    since,
+    rejected: `COUNTIF(${status},"Rejected")`,
+    matureN: `SUMPRODUCT(${mature})`,
+    matureAns: `SUMPRODUCT(${mature}*${isAns})`,
     last7: `COUNTIFS(${date},">="&(TODAY()-6))`,
-    prev7: `COUNTIFS(${date},">="&(TODAY()-13),${date},"<"&(TODAY()-6))`,
-    last30: `COUNTIFS(${date},">="&(TODAY()-29))`,
-    median: `MEDIAN(FILTER(IFERROR(${changed}-${date}),${isAns},ISNUMBER(${changed}),ISNUMBER(${date})))`,
+    avg4: `(COUNTIFS(${date},">="&(TODAY()-27))/4)`,
+    followDue: `(${waitingAged(7, 22)})`,
+    waitingLive: `(${waitingAged(0, 60)})`,
+    ghosted: `(COUNTIF(${status},"Ghosted")+${waitingAged(60)})`,
+    toReject: daysTo(`${status}="Rejected"`),
+    toNext: daysTo(isNext),
+    toAny: daysTo(isAns),
+    // Of answers with both dates, the share that came more than two weeks after applying.
+    lateShare: `SUMPRODUCT(IFERROR(${isAns}*ISNUMBER(${changed})*${dated}*((${changed}-${date})>14),0))/MAX(1,SUMPRODUCT(IFERROR(${isAns}*ISNUMBER(${changed})*${dated}*((${changed}-${date})>=0),0)))`,
+    noRole: `SUMPRODUCT((LEN(${company})>0)*(ROW(${company})>1)*(LEN(${A('Job title')})=0))`,
   }
 }
+type M = ReturnType<typeof metrics>
 
 /** Monday of the week k weeks back (0 = this week). */
 const weekStart = (k: number) => `(TODAY()-WEEKDAY(TODAY(),3)-${7 * k})`
@@ -167,18 +194,20 @@ export class Grid {
 type Box = [number, number, number, number]
 
 interface Table {
+  /** A title, or a formula for one. */
   head: string
   /** Header labels with their widths in columns. */
   cols: [string, number][]
 }
 
-/** Table columns for each half. */
-const LEFT: Record<string, Table> = {
-  funnel: { head: 'From application to offer', cols: [['Stage', 2], ['Count', 1], ['Of applied', 1], ['', 3]] },
-  score: { head: 'Does the match score predict answers?', cols: [['Match score', 2], ['Applied', 1], ['Answered', 1], ['Interview', 1], ['', 2]] },
-}
-const RIGHT: Record<string, Table> = {
-  sites: { head: 'Which sites answer', cols: [['Site', 2], ['Applied', 1], ['Answered', 1], ['Interview', 1], ['', 2]] },
+const TABLES: Record<string, Table> = {
+  open: { head: '', cols: [['Company', 2], ['Role', 3], ['Stage', 1], ['Days in it', 1]] },
+  follow: { head: '', cols: [['Company', 2], ['Role', 3], ['Applied', 1], ['Days', 1]] },
+  months: {
+    head: "How each month's applications did",
+    cols: [['Applied in', 2], ['Applied', 1], ['Heard back', 1], ['Rejected', 1], ['Next step', 1], ['Waiting', 1], ['Ghosted', 1], ['', 6]],
+  },
+  timing: { head: 'How long answers take', cols: [['', 5], ['', 2]] },
   latest: { head: 'Latest answers', cols: [['Company', 2], ['Role', 3], ['Status', 1], ['Date', 1]] },
 }
 
@@ -194,35 +223,32 @@ function starts(t: Table, c0: number): number[] {
 }
 
 /** Cards: [label, value formula, note formula, number format]. */
-function cards(m: ReturnType<typeof metrics>): [string, string, string, string][] {
+function cards(m: M): [string, string, string, string][] {
   return [
     ['Applications', `=${m.total}`, `=IF(COUNT(${m.date})=0,"none yet","since "&TEXT(MIN(${m.date}),"mmm d"))`, '0'],
     [
       'Last 7 days',
       `=${m.last7}`,
-      `=LET(d,${m.last7}-${m.prev7},IF(d>0,"▲ "&d&" vs the week before",IF(d<0,"▼ "&-d&" vs the week before","same as the week before")))`,
+      `=LET(d,ROUND(${m.last7}-${m.avg4}),IF(d>0,"▲ "&d&" over weekly avg",IF(d<0,"▼ "&-d&" under weekly avg","on weekly avg")))`,
       '0',
     ],
-    ['Answered', `=IFERROR(${m.ans}/${m.total},0)`, `=${m.ans}&" of "&${m.total}&" applications"`, '0%'],
-    ['Interviews', `=${m.intv}`, `=IF(${m.total}=0,"",TEXT(${m.intv}/${m.total},"0%")&" of applications")`, '0'],
-    ['Offers', `=${m.offers}`, `=COUNTIF(${m.status},"Rejected")&" rejections"`, '0'],
-    ['Days to an answer', `=IFERROR(${m.median},"–")`, `="median, from applying"`, '0'],
-    ['Waiting', `=${m.waiting}`, `=${m.stale}&" for 30+ days"`, '0'],
+    ['Response rate', `=IFERROR(${m.matureAns}/${m.matureN},0)`, `="of "&${m.matureN}&" sent 3+ weeks ago"`, '0%'],
+    ['In play', `=${m.nextRecent}`, `="moved in 30 days; "&(${m.next}-${m.nextRecent})&" older"`, '0'],
+    ['Follow up', `=${m.followDue}`, `="7–21 days, no reply"`, '0'],
+    ['Waiting', `=${m.waitingLive}`, `="under 60 days old"`, '0'],
+    ['Ghosted', `=${m.ghosted}`, `="60+ days, silent"`, '0'],
   ]
 }
 
-/** One sentence each, written by formulas. */
-function insights(m: ReturnType<typeof metrics>): string[] {
-  const latest = (i: number) => ref(1, LATEST + i)
-  const sites = `${ref(1, SITES)}:${colName(SITES + 3)}`
-  const siteCol = (i: number) => `${ref(1, SITES + i)}:${colName(SITES + i)}`
+/** One sentence each, written by formulas, each about something to do or to know. */
+function insights(m: M): string[] {
+  const open = (i: number) => ref(1, OPEN + i)
   return [
-    `=IF(${m.total}=0,"No applications yet. Apply with Zipply open and they show up here.",LET(w,${m.last7},p,${m.prev7},"You sent "&w&IF(w=1," application"," applications")&" in the last 7 days"&IF(p=0,"",IF(w>p,", up from "&p,IF(w<p,", down from "&p,", the same as"))&" the week before")&", and about "&TEXT(${m.last30}/30*7,"0.0")&" a week over the last 30 days."))`,
-    `=IF(${m.total}=0,"",LET(a,${m.ans},i,${m.intv},o,${m.offers},"Companies answered "&a&" of your "&${m.total}&" applications ("&TEXT(a/${m.total},"0%")&"). "&IF(i=0,"None has reached an interview yet.",i&IF(i=1," has"," have")&" reached the interview stage"&IF(o>0,", and "&o&IF(o=1," became an offer"," became offers"),"")&".")))`,
-    `=IFERROR(LET(t,SORT(FILTER(${sites},${siteCol(1)}>=3,${siteCol(0)}<>"Other"),3,FALSE,2,FALSE),n,ROWS(t),IF(INDEX(t,1,3)=0,"No site has answered yet among those you've used 3+ times.","Applications through "&INDEX(t,1,1)&" get answered most often ("&TEXT(INDEX(t,1,3),"0%")&" of "&INDEX(t,1,2)&")"&IF(n>1,", "&INDEX(t,n,1)&" least ("&TEXT(INDEX(t,n,3),"0%")&" of "&INDEX(t,n,2)&")","")&".")),"Once you've used a site 3+ times, this says which ones answer most.")`,
-    `=LET(s,${m.score},hi,COUNTIFS(s,">=70"),lo,COUNTIFS(s,"<70"),IF(OR(hi<3,lo<3),"With 3+ applications on each side of a 70 match score, this compares how often each gets answered.",LET(h,SUMPRODUCT(ISNUMBER(s)*(s>=70)*${m.isAns})/hi,l,SUMPRODUCT(ISNUMBER(s)*(s<70)*${m.isAns})/lo,"Jobs with a match score of 70+ were answered "&TEXT(h,"0%")&" of the time, against "&TEXT(l,"0%")&" below 70"&IF(h>l,", so the higher scores have paid off.",IF(h<l,", so lower-scored jobs have done better so far.",".")))))`,
-    `=LET(n,${m.stale},IF(n=0,"Nothing has gone 30+ days without an answer.",n&IF(n=1," application has"," applications have")&" gone 30+ days without an answer: worth a follow-up, or letting go."))`,
-    `=IF(${latest(0)}="","No answers yet. Zipply reads your Gmail and updates statuses as replies arrive.","Latest answer: "&TRIM(${latest(0)})&IF(${latest(1)}="",""," ("&TRIM(${latest(1)})&")")&" "&SWITCH(${latest(2)},"Rejected","passed","Interview","asked to interview you","Assessment","sent an assessment","Offer","made you an offer","replied")&" on "&TEXT(${latest(3)},"mmm d")&".")`,
+    `=IF(${m.total}=0,"No applications yet. Apply with Zipply open and they show up here.",LET(w,${m.last7},a,${m.avg4},"You sent "&w&IF(w=1," application"," applications")&" in the last 7 days, "&IF(w>=a,"at or above","below")&" your 4-week average of "&TEXT(a,"0")&" a week."))`,
+    `=IF(${m.matureN}=0,"Response rates show once applications are 3 weeks old.",TEXT(${m.matureAns}/${m.matureN},"0%")&" of applications sent 3+ weeks ago got a real answer: "&${m.rejected}&" rejections and "&${m.next}&IF(${m.next}=1," next step"," next steps")&" so far.")`,
+    `=IF(${open(0)}="","No assessments or interviews open right now.",LET(n,${m.nextRecent},o,${m.next}-n,IF(n=0,"No assessment or interview has moved in 30 days","Latest next step: "&TRIM(${open(0)})&" ("&LOWER(${open(2)})&", "&(TODAY()-${open(3)})&" days ago); "&n&" moved in the last 30 days")&IF(o>0,", and "&o&" older ones have likely closed.",".")))`,
+    `=LET(f,${m.followDue},IF(f=0,"No applications are in the 7–21 day window where a follow-up helps.",f&IF(f=1," application is"," applications are")&" 7–21 days old with no reply: the window where a short follow-up still helps."))`,
+    `=IFERROR("Rejections usually come within "&TEXT(${m.toReject},"0")&" days, and only "&TEXT(${m.lateShare},"0%")&" of answers came after two weeks of silence, so the "&${m.ghosted}&" applications past 60 days are safe to let go.","")`,
   ]
 }
 
@@ -232,7 +258,7 @@ function insights(m: ReturnType<typeof metrics>): string[] {
  * whenever they change. Applied flows to how far each application got (heard
  * back, an automatic reply only, no reply yet, ghosted), and heard back on to the answer.
  */
-const SANKEY: { key: string; from: string; label: string; count: (m: ReturnType<typeof metrics>) => string; color: string }[] = [
+const SANKEY: { key: string; from: string; label: string; count: (m: M) => string; color: string }[] = [
   { key: 'h', from: 'a', label: 'Heard back', count: (m) => m.ans, color: '#1c5cab' },
   { key: 'r', from: 'a', label: 'Auto-reply only', count: (m) => `COUNTIF(${m.status},"Received")`, color: '#86b6ef' },
   { key: 'n', from: 'a', label: 'No reply', count: (m) => `COUNTIF(${m.status},"Applied")`, color: '#c3c2b7' },
@@ -245,7 +271,7 @@ const SANKEY: { key: string; from: string; label: string; count: (m: ReturnType<
 const SANKEY_W = 14 * COLW
 const SANKEY_ROWH = 22
 
-function sankeyImage(m: ReturnType<typeof metrics>): string {
+function sankeyImage(m: M): string {
   const colors = `({a:'#52514e',${SANKEY.map((s) => `${s.key}:'${s.color}'`).join(',')}})`
   const columns = `{a:0,${SANKEY.map((s) => `${s.key}:${s.from === 'a' ? 1 : 2}`).join(',')}}`
   // A flow of 0 is left out: the library draws it as a stray line.
@@ -262,13 +288,18 @@ function sankeyImage(m: ReturnType<typeof metrics>): string {
   return `=IMAGE("https://quickchart.io/chart?v=3&bkg=white&w=${SANKEY_W}&h=${R.flowRows * SANKEY_ROWH}&c="&ENCODEURL(${config}),1)`
 }
 
+/** The first and last day of the month k months back (0 = this month). */
+const monthStart = (k: number) => `(EOMONTH(TODAY(),-${k + 1})+1)`
+const monthEnd = (k: number) => `EOMONTH(TODAY(),-${k})`
+const MONTHS = 4
+
 /** Dashboard cells, written with USER_ENTERED so the formulas evaluate. */
 export function dashboardData(): Block[] {
   const m = metrics()
   const g = new Grid(DASH)
 
   g.put(R.title, B, 'Job search')
-  g.put(R.sub, B, `="As of "&TEXT(TODAY(),"dddd, mmmm d")&"  ·  "&${m.total}&" applications tracked by Zipply"`)
+  g.put(R.sub, B, `="As of "&TEXT(TODAY(),"dddd, mmmm d")&"  ·  "&${m.total}&" applications"`)
 
   cards(m).forEach(([label, value, note], k) => {
     g.put(R.card, B + 2 * k, label)
@@ -279,11 +310,41 @@ export function dashboardData(): Block[] {
   g.put(R.insightsHead, B, 'What stands out')
   insights(m).forEach((f, i) => g.put(R.insights + i, B, f))
 
+  // Hidden lists the tables and sentences read.
+  g.row(0, LATEST, ['Company', 'Role', 'Status', 'Date'])
+  g.put(1, LATEST, `=IFERROR(SORTN(FILTER({${m.company},${m.title},${m.status},${m.changed}},${m.isAns},ISNUMBER(${m.changed})),${LIST},0,4,FALSE),"")`)
+  g.row(0, OPEN, ['Company', 'Role', 'Stage', 'Since'])
+  // Newest first: those are the ones still worth acting on.
+  g.put(1, OPEN, `=IFERROR(SORTN(FILTER({${m.company},${m.title},${m.status},${m.since}},${m.isNext}),${LIST},0,4,FALSE),"")`)
+  g.row(0, FOLLOW, ['Company', 'Role', 'Applied'])
+  g.put(1, FOLLOW, `=IFERROR(SORTN(FILTER({${m.company},${m.title},${m.date}},${m.isWaiting}*ISNUMBER(${m.date})*(${m.date}<=TODAY()-7)*(${m.date}>=TODAY()-21)),${LIST},0,3,TRUE),"")`)
+
+  // Tables, each with a header row under its title.
+  const header = (t: Table, r: number, c0: number, head = t.head) => {
+    g.put(r, c0, head)
+    const s = starts(t, c0)
+    t.cols.forEach(([label], i) => label && g.put(r + 1, s[i], label))
+    return s
+  }
+  const list = (t: Table, c0: number, from: number, cells: (h: (j: number) => string) => string[]) => {
+    const s = starts(t, c0)
+    for (let i = 0; i < LIST; i++) {
+      const h = (j: number) => ref(1 + i, from + j)
+      cells(h).forEach((f, j) => g.put(R.todoHead + 2 + i, s[j], f))
+    }
+  }
+
+  // To do: what's open, and who to follow up with.
+  header(TABLES.open, R.todoHead, B, `="Assessments and interviews, newest first  ·  "&${m.nextRecent}&" recent"`)
+  list(TABLES.open, B, OPEN, (h) => [`=${h(0)}`, `=${h(1)}`, `=${h(2)}`, `=IF(${h(0)}="","",TODAY()-${h(3)})`])
+  header(TABLES.follow, R.todoHead, I, `="Follow up this week: 7–21 days, no reply  ·  "&${m.followDue}`)
+  list(TABLES.follow, I, FOLLOW, (h) => [`=${h(0)}`, `=${h(1)}`, `=${h(2)}`, `=IF(${h(0)}="","",TODAY()-${h(2)})`])
+
   g.put(R.flowHead, B, 'Where your applications went')
   g.put(R.flow, B, sankeyImage(m))
 
   g.put(R.chartsHead, B, 'Applications per week, by whether they were answered')
-  g.put(R.chartsHead, I, 'Where things stand')
+  g.put(R.chartsHead, I, 'Still waiting, by days since applying')
 
   // Chart data, hidden: 13 weeks, oldest first.
   g.row(0, WEEK, ['Week of', 'Got an answer', 'No answer yet'])
@@ -292,101 +353,63 @@ export function dashboardData(): Block[] {
     const answered = `SUMPRODUCT((${m.date}>=${s})*(${m.date}<${s}+7)*${m.isAns})`
     g.row(r, WEEK, [`=TEXT(${s},"mmm d")`, `=${answered}`, `=COUNTIFS(${m.date},">="&${s},${m.date},"<"&${s}+7)-${answered}`])
   }
-  g.row(0, STAT, ['Status', 'Applications'])
-  STATUSES.forEach((s, i) => g.row(1 + i, STAT, [s === 'Applied' ? 'No reply yet' : s, `=COUNTIF(${m.status},"${s}")`]))
-  g.row(0, LATEST, ['Company', 'Role', 'Status', 'Date'])
-  g.put(1, LATEST, `=IFERROR(SORTN(FILTER({${m.company},${m.title},${m.status},${m.changed}},${m.isAns},ISNUMBER(${m.changed})),8,0,4,FALSE),"")`)
-  g.row(0, SITES, ['Site', 'Applied', 'Answered', 'Interview'])
-  const per = (cond: string) => `MAP(u,LAMBDA(x,SUMPRODUCT((${m.ats}=x)*${cond})/COUNTIF(${m.ats},x)))`
-  g.put(
-    1,
-    SITES,
-    `=IFERROR(LET(s,FILTER(${m.ats},ROW(${m.ats})>1,${m.ats}<>""),u,UNIQUE(s),SORT(HSTACK(u,MAP(u,LAMBDA(x,COUNTIF(s,x))),${per(m.isAns)},${per(m.isIntv)}),2,FALSE,1,TRUE)),"")`,
-  )
+  const aged = (a: number, b?: number) =>
+    ['Applied', 'Received'].map((s) => `COUNTIFS(${m.status},"${s}",${m.date},"<="&(TODAY()-${a})${b == null ? '' : `,${m.date},">"&(TODAY()-${b})`})`).join('+')
+  const ages: [string, string][] = [
+    ['0–6 days', aged(0, 7)],
+    ['7–13 days', aged(7, 14)],
+    ['14–29 days', aged(14, 30)],
+    ['30–59 days', aged(30, 60)],
+    ['60+ (ghosted)', m.ghosted],
+  ]
+  g.row(0, AGE, ['Waiting', 'Applications'])
+  ages.forEach(([label, f], i) => g.row(1 + i, AGE, [label, `=${f}`]))
 
-  // Tables, each with a header row under its title.
-  const header = (t: Table, r: number, c0: number) => {
-    g.put(r, c0, t.head)
-    const s = starts(t, c0)
-    t.cols.forEach(([label], i) => label && g.put(r + 1, s[i], label))
-    return s
-  }
-
-  // From application to offer.
+  // Each month's applications: how they've done so far, newest first.
   {
-    const s = header(LEFT.funnel, R.t1Head, B)
-    const steps: [string, string][] = [
-      ['Applied', m.total],
-      ['Heard back', m.ans],
-      ['Interview stage', m.intv],
-      ['Offer', m.offers],
-    ]
-    steps.forEach(([label, f], i) => {
-      const r = R.t1Head + 2 + i
-      g.put(r, s[0], label)
-      g.put(r, s[1], `=${f}`)
-      g.put(r, s[2], `=IFERROR(${ref(r, s[1])}/${m.total},0)`)
-      g.put(r, s[3], bar(ref(r, s[2])))
-    })
-  }
-  // Which sites answer: the top six.
-  {
-    const s = header(RIGHT.sites, R.t1Head, I)
-    for (let i = 0; i < 6; i++) {
-      const r = R.t1Head + 2 + i
-      const h = (j: number) => ref(1 + i, SITES + j)
-      g.put(r, s[0], `=${h(0)}`)
-      g.put(r, s[1], `=IF(${h(0)}="","",${h(1)})`)
-      g.put(r, s[2], `=IF(${h(0)}="","",${h(2)})`)
-      g.put(r, s[3], `=IF(${h(0)}="","",${h(3)})`)
-      g.put(r, s[4], bar(ref(r, s[2])))
-    }
-  }
-
-  // Activity: 13 weeks across, Monday to Sunday down.
-  g.put(R.heatHead, B, 'When you apply, last 13 weeks')
-  for (let k = 12, c = B + 1; k >= 0; k--, c++) g.put(R.heatHead + 1, c, `=${weekStart(k)}`)
-  ;['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach((d, di) => {
-    const r = R.heatHead + 2 + di
-    g.put(r, B, d)
-    for (let c = B + 1; c <= O; c++) g.put(r, c, `=COUNTIF(${m.date},${colName(c)}$${R.heatHead + 2}+${di})`)
-  })
-
-  // Match score, against answers.
-  const outcomeRows = (t: Table, c0: number, rows: [string, string][]) => {
-    const s = header(t, R.t2Head, c0)
-    rows.forEach(([label, cond], i) => {
-      const r = R.t2Head + 2 + i
+    const s = header(TABLES.months, R.monthsHead, B)
+    const maxN = `MAX(${Array.from({ length: MONTHS }, (_, k) => ref(R.monthsHead + 2 + k, s[1])).join(',')},1)`
+    for (let k = 0; k < MONTHS; k++) {
+      const r = R.monthsHead + 2 + k
+      const inMonth = `${m.date},">="&${monthStart(k)},${m.date},"<="&${monthEnd(k)}`
       const n = ref(r, s[1])
-      g.put(r, s[0], label)
-      g.put(r, s[1], `=SUMPRODUCT(${cond})`)
-      g.put(r, s[2], `=IF(${n}=0,"",SUMPRODUCT(${cond}*${m.isAns})/${n})`)
-      g.put(r, s[3], `=IF(${n}=0,"",SUMPRODUCT(${cond}*${m.isIntv})/${n})`)
-      g.put(r, s[4], bar(ref(r, s[2])))
+      const share = (f: string) => `=IF(${n}=0,"",(${f})/${n})`
+      const count = (st: string) => `COUNTIFS(${inMonth},${m.status},"${st}")`
+      g.put(r, s[0], `=TEXT(${monthStart(k)},"mmmm")`)
+      g.put(r, s[1], `=COUNTIFS(${inMonth})`)
+      g.put(r, s[2], share(`SUMPRODUCT((${m.date}>=${monthStart(k)})*(${m.date}<=${monthEnd(k)})*ISNUMBER(${m.date})*${m.isAns})`))
+      g.put(r, s[3], share(count('Rejected')))
+      g.put(r, s[4], share(`${count('Assessment')}+${count('Interview')}+${count('Offer')}`))
+      g.put(r, s[5], share(`${count('Applied')}+${count('Received')}`))
+      g.put(r, s[6], share(count('Ghosted')))
+      // Bar: the month's volume against the busiest month, the dark part heard back.
+      g.put(r, s[7], `=IF(${n}=0,"",SPARKLINE({${n}*${ref(r, s[2])},${n}*(1-${ref(r, s[2])})},{"charttype","bar";"max",${maxN};"color1","${C.blueDark}";"color2","${C.blueWash}"}))`)
+    }
+  }
+
+  // How long answers take, beside the latest ones.
+  {
+    const s = header(TABLES.timing, R.timingHead, B)
+    const rows: [string, string][] = [
+      ['Median days to a rejection', `=IFERROR(TEXT(${m.toReject},"0")&" days","–")`],
+      ['Median days to an assessment or interview', `=IFERROR(TEXT(${m.toNext},"0")&" days","–")`],
+      ['Median days to any answer', `=IFERROR(TEXT(${m.toAny},"0")&" days","–")`],
+      ['Answers that came after 2+ weeks', `=IFERROR(TEXT(${m.lateShare},"0%"),"–")`],
+    ]
+    rows.forEach(([label, f], i) => {
+      g.put(R.timingHead + 2 + i, s[0], label)
+      g.put(R.timingHead + 2 + i, s[1], f)
     })
   }
-  const scored = `ISNUMBER(${m.score})`
-  outcomeRows(LEFT.score, B, [
-    ['80 and up', `${scored}*(${m.score}>=80)`],
-    ['60 to 79', `${scored}*(${m.score}>=60)*(${m.score}<80)`],
-    ['Below 60', `${scored}*(${m.score}<60)`],
-    ['Not scored', `${m.hasRow}*NOT(${scored})`],
-  ])
-
-  // Latest answers, from the hidden list.
   {
-    const sl = header(RIGHT.latest, R.t2Head, I)
-    for (let i = 0; i < 8; i++) {
-      const r = R.t2Head + 2 + i
-      const l = (j: number) => ref(1 + i, LATEST + j)
-      sl.forEach((c, j) => g.put(r, c, `=${l(j)}`))
-    }
+    const s = header(TABLES.latest, R.timingHead, I)
+    for (let i = 0; i < LIST; i++) s.forEach((c, j) => g.put(R.timingHead + 2 + i, c, `=${ref(1 + i, LATEST + j)}`))
   }
 
   g.put(
     R.foot,
     B,
-    "Zipply keeps this tab up to date from the Applications tab. Answered means an assessment, interview, offer or rejection; an automatic “we received it” doesn't count.",
+    `="Heard back = an assessment, interview, offer or rejection; an automatic “we received it” doesn't count. Response rate counts applications 3+ weeks old. "&${m.noRole}&" applications have no role saved."`,
   )
   return g.blocks()
 }
@@ -464,6 +487,7 @@ export function dashboardRequests(sheetId: number): object[] {
   const line = (color: string, s = 'SOLID') => ({ style: s, color: hex(color) })
   const borders = (b: Box, o: Record<string, object>) => out.push({ updateBorders: { range: grid(...b), ...o } })
   const pct = { numberFormat: { type: 'PERCENT', pattern: '0%' } }
+  const day = { numberFormat: { type: 'DATE', pattern: 'mmm d' } }
 
   // Sheet shape: gutters, equal content columns, chart data hidden.
   const width = (c0: number, c1: number, px: number) =>
@@ -519,18 +543,18 @@ export function dashboardRequests(sheetId: number): object[] {
     section(r, I, O + 1)
   }
   section(R.insightsHead, B, O + 1)
+  halves(R.todoHead)
   section(R.flowHead, B, O + 1)
   merge(R.flow, R.flow + R.flowRows, B, O + 1)
   height(R.flow, R.flow + R.flowRows, SANKEY_ROWH)
   halves(R.chartsHead)
-  halves(R.t1Head)
-  section(R.heatHead, B, O + 1)
-  halves(R.t2Head)
+  section(R.monthsHead, B, O + 1)
+  halves(R.timingHead)
 
   // What stands out: one sentence per line.
-  for (let i = 0; i < 6; i++) merge(R.insights + i, R.insights + i + 1, B, O + 1)
-  height(R.insights, R.insights + 6, 24)
-  style([R.insights, R.insights + 6, B, O + 1], { padding: { left: 4 }, ...text({ fontSize: 10, foregroundColor: hex(C.ink2) }) })
+  for (let i = 0; i < INSIGHTS; i++) merge(R.insights + i, R.insights + i + 1, B, O + 1)
+  height(R.insights, R.insights + INSIGHTS, 24)
+  style([R.insights, R.insights + INSIGHTS, B, O + 1], { padding: { left: 4 }, ...text({ fontSize: 10, foregroundColor: hex(C.ink2) }) })
 
   // Tables: merged columns, a muted header, hairlines between rows.
   const table = (t: Table, r0: number, c0: number, rows: number) => {
@@ -542,39 +566,25 @@ export function dashboardRequests(sheetId: number): object[] {
     borders([r0 + 2, r0 + rows + 2, c0, end], { innerHorizontal: line(C.faint), bottom: line(C.faint) })
     // Numbers right-aligned under right-aligned headers.
     t.cols.forEach(([label], i) => {
-      if (i === 0 || !label || label === 'Role' || label === 'Company' || label === 'Status') return
+      if (i === 0 || !label || ['Role', 'Company', 'Status', 'Stage'].includes(label)) return
       style([r0 + 1, r0 + rows + 2, s[i], s[i] + 1], { horizontalAlignment: 'RIGHT' })
     })
     return s
   }
-  {
-    const s = table(LEFT.funnel, R.t1Head, B, 4)
-    style([R.t1Head + 2, R.t1Head + 6, s[2], s[2] + 1], pct)
-  }
-  {
-    const s = table(RIGHT.sites, R.t1Head, I, 6)
-    style([R.t1Head + 2, R.t1Head + 8, s[2], s[4]], pct)
-  }
-  {
-    const s = table(LEFT.score, R.t2Head, B, 4)
-    style([R.t2Head + 2, R.t2Head + 6, s[2], s[4]], pct)
-  }
-  const latest = table(RIGHT.latest, R.t2Head, I, 8)
-  style([R.t2Head + 2, R.t2Head + 10, latest[3], latest[3] + 1], { numberFormat: { type: 'DATE', pattern: 'mmm d' } })
-  style([R.t2Head + 2, R.t2Head + 10, latest[2], latest[2] + 1], { horizontalAlignment: 'CENTER', ...text({ fontSize: 9, bold: true }) })
-
-  // Activity calendar: tiles with white gaps, zeros left blank.
-  const heat: Box = [R.heatHead + 2, R.heatHead + 9, B + 1, O + 1]
-  height(R.heatHead + 1, R.heatHead + 2, 22)
-  height(heat[0], heat[1], 24)
-  style([R.heatHead + 1, R.heatHead + 2, B + 1, O + 1], {
-    horizontalAlignment: 'CENTER',
-    numberFormat: { type: 'DATE', pattern: 'mmm d' },
-    ...text({ fontSize: 8, foregroundColor: hex(C.muted) }),
-  })
-  style([heat[0], heat[1], B, B + 1], text({ fontSize: 9, foregroundColor: hex(C.muted) }))
-  style(heat, { horizontalAlignment: 'CENTER', numberFormat: { type: 'NUMBER', pattern: '0;-0;;@' }, ...text({ fontSize: 9 }) })
-  borders(heat, { innerHorizontal: line(C.white, 'SOLID_THICK'), innerVertical: line(C.white, 'SOLID_THICK') })
+  const open = table(TABLES.open, R.todoHead, B, LIST)
+  const follow = table(TABLES.follow, R.todoHead, I, LIST)
+  style([R.todoHead + 2, R.todoHead + 2 + LIST, open[2], open[2] + 1], { horizontalAlignment: 'CENTER', ...text({ fontSize: 9, bold: true }) })
+  style([R.todoHead + 2, R.todoHead + 2 + LIST, follow[2], follow[2] + 1], day)
+  // Day counts: plain numbers (a date minus a date would show as a date).
+  for (const c of [open[3], follow[3]]) style([R.todoHead + 2, R.todoHead + 2 + LIST, c, c + 1], { numberFormat: { type: 'NUMBER', pattern: '0' } })
+  const months = table(TABLES.months, R.monthsHead, B, MONTHS)
+  style([R.monthsHead + 2, R.monthsHead + 2 + MONTHS, months[2], months[7]], pct)
+  style([R.monthsHead + 2, R.monthsHead + 2 + MONTHS, months[0], months[0] + 1], text({ bold: true }))
+  const timing = table(TABLES.timing, R.timingHead, B, 4)
+  style([R.timingHead + 2, R.timingHead + 6, timing[1], timing[1] + 2], { horizontalAlignment: 'RIGHT', ...text({ bold: true }) })
+  const latest = table(TABLES.latest, R.timingHead, I, LIST)
+  style([R.timingHead + 2, R.timingHead + 2 + LIST, latest[3], latest[3] + 1], day)
+  style([R.timingHead + 2, R.timingHead + 2 + LIST, latest[2], latest[2] + 1], { horizontalAlignment: 'CENTER', ...text({ fontSize: 9, bold: true }) })
 
   // Footnote.
   merge(R.foot, R.foot + 1, B, O + 1)
@@ -588,24 +598,16 @@ export function dashboardRequests(sheetId: number): object[] {
   const trend = ref(R.card + 2, B + 2)
   when([R.card + 2, R.card + 3, B + 2, B + 4], { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: `=LEFT(${trend},1)="▲"` }] }, { textFormat: { foregroundColor: hex(C.good) } })
   when([R.card + 2, R.card + 3, B + 2, B + 4], { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: `=LEFT(${trend},1)="▼"` }] }, { textFormat: { foregroundColor: hex(C.critical) } })
-  const chips: Box = [R.t2Head + 2, R.t2Head + 10, latest[2], latest[2] + 1]
-  for (const [s, bg, fg] of CHIPS) when(chips, { type: 'TEXT_EQ', values: [{ userEnteredValue: s }] }, { backgroundColor: hex(bg), textFormat: { foregroundColor: hex(fg) } })
-  // Days still to come this week stay white.
-  const firstDay = `${colName(B + 1)}$${R.heatHead + 2}+ROW()-${heat[0] + 1}`
-  when(heat, { type: 'CUSTOM_FORMULA', values: [{ userEnteredValue: `=${firstDay}>TODAY()` }] }, { backgroundColor: hex(C.white) })
+  for (const chips of [
+    [R.todoHead + 2, R.todoHead + 2 + LIST, open[2], open[2] + 1],
+    [R.timingHead + 2, R.timingHead + 2 + LIST, latest[2], latest[2] + 1],
+  ] as Box[])
+    for (const [s, bg, fg] of CHIPS) when(chips, { type: 'TEXT_EQ', values: [{ userEnteredValue: s }] }, { backgroundColor: hex(bg), textFormat: { foregroundColor: hex(fg) } })
+  // Next steps that have sat a week: amber; two weeks: red.
+  const waitedDays: Box = [R.todoHead + 2, R.todoHead + 2 + LIST, open[3], open[3] + 1]
+  when(waitedDays, { type: 'NUMBER_GREATER_THAN_EQ', values: [{ userEnteredValue: '14' }] }, { textFormat: { foregroundColor: hex(C.critical), bold: true } })
+  when(waitedDays, { type: 'NUMBER_GREATER_THAN_EQ', values: [{ userEnteredValue: '7' }] }, { textFormat: { foregroundColor: hex(C.late), bold: true } })
   rules.forEach((rule, index) => out.push({ addConditionalFormatRule: { index, rule } }))
-  out.push({
-    addConditionalFormatRule: {
-      index: rules.length,
-      rule: {
-        ranges: [grid(...heat)],
-        gradientRule: {
-          minpoint: { color: hex(C.heatLow), type: 'NUMBER', value: '0' },
-          maxpoint: { color: hex(C.blue), type: 'MAX' },
-        },
-      },
-    },
-  })
 
   // Charts, side by side under their titles.
   const src = (r0: number, r1: number, c: number) => ({ sourceRange: { sources: [grid(r0, r1, c, c + 1)] } })
@@ -645,8 +647,8 @@ export function dashboardRequests(sheetId: number): object[] {
             legendPosition: 'NO_LEGEND',
             headerCount: 1,
             axis: [{ position: 'BOTTOM_AXIS' }, { position: 'LEFT_AXIS' }],
-            domains: [{ domain: src(0, 1 + STATUSES.length, STAT) }],
-            series: [{ series: src(0, 1 + STATUSES.length, STAT + 1), targetAxis: 'BOTTOM_AXIS', colorStyle: { rgbColor: hex(C.blue) } }],
+            domains: [{ domain: src(0, 6, AGE) }],
+            series: [{ series: src(0, 6, AGE + 1), targetAxis: 'BOTTOM_AXIS', colorStyle: { rgbColor: hex(C.blue) } }],
           },
         },
         position: place(I),
