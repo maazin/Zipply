@@ -450,3 +450,14 @@ export function buildLabelQuery(labels: string[], days: number): string {
   const names = labels.map((l) => `label:${l.toLowerCase().replace(/[\s/]+/g, '-')}`)
   return `newer_than:${days}d -in:drafts -in:spam {${names.join(' ')}}`
 }
+
+/**
+ * Words that make an email worth a look when the rules can't read it: it may be a
+ * decision or a next step. Anything else from a company (a newsletter, a survey,
+ * a recruiter's note) needs nothing from you.
+ */
+const MIGHT_MATTER = /\b(interview|assessment|offer|unfortunately|regret|next steps?|schedul\w*|availability|move forward|moving forward|not (?:been )?selected|other candidates|position (?:has been|was) filled|decision)\b/i
+
+export function mightMatter(subject: string, body: string): boolean {
+  return MIGHT_MATTER.test(`${subject}\n${body.split(/\n/).filter((l) => l.trim()).slice(0, 25).join('\n')}`)
+}

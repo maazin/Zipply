@@ -386,3 +386,50 @@ describe('how far back applications are found', () => {
     expect((await getSettings()).gmailDiscoverSince).toBe('2026-10-01')
   })
 })
+
+describe('sync places emails itself; only real puzzles are yours', () => {
+  const row = (o: Partial<AppliedEntry>): AppliedEntry => ({
+    key: o.appId!, appId: 'x', company: 'Acme', companyNorm: 'acme', title: '', jobId: '', url: '', dateApplied: '2026-10-10', status: 'Received', firstReply: '', lastStatusChange: '2026-10-10', ...o,
+  })
+  const review = async () => (await db.unmatched.toArray()).map((u) => u.reason)
+
+  it('a rejection from a company with two applications, naming neither role, closes the latest', async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.bulkPut([
+      row({ appId: 'old', key: 'old', title: 'Data Analyst', dateApplied: '2026-10-05' }),
+      row({ appId: 'new', key: 'new', title: 'Software Engineer', dateApplied: '2026-10-12' }),
+    ])
+    mail.r = { from: 'Acme Careers <jobs@acme.com>', subject: 'Your application to Acme', body: 'Unfortunately, we have decided to move forward with other candidates.', date: '2026-10-20' }
+    await syncGmail()
+    expect((await db.applied.get('new'))!.status).toBe('Rejected')
+    expect((await db.applied.get('old'))!.status).toBe('Received')
+    expect(await review()).toEqual([])
+  })
+
+  it('leaves acknowledgments and unreadable newsletters out of review, but asks about an unreadable maybe-decision', async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.put(row({ appId: 'a', key: 'a', title: 'Engineer' }))
+    // An acknowledgment from a mailing service that names no employer: nothing to do.
+    mail.ack = { from: 'Hiring <no-reply@kajabimail.net>', subject: 'Hello', body: 'We have received your application.', date: '2026-10-15' }
+    // From the company but about nothing: a newsletter.
+    mail.news = { from: 'Acme <news@acme.com>', subject: 'Acme monthly', body: 'Our product launch is live.', date: '2026-10-16' }
+    await syncGmail()
+    expect(await review()).toEqual([])
+    // Unreadable, yet it might be a decision: that one is yours.
+    mail.maybe = { from: 'Acme <jobs@acme.com>', subject: 'About our decision', body: 'We will share more soon.', date: '2026-10-17' }
+    await syncGmail()
+    expect((await db.applied.get('a'))!.status).toBe('Received')
+    expect(await review()).toEqual(['Couldn’t tell what this email means'])
+  })
+
+  it('still asks when a decision could be for either of two different companies', async () => {
+    await updateSettings({ gmailEnabled: true })
+    await db.applied.bulkPut([
+      row({ appId: 'p', key: 'p', company: 'Pine', companyNorm: 'pine', title: 'Analyst' }),
+      row({ appId: 'q', key: 'q', company: 'Quill', companyNorm: 'quill', title: 'Analyst' }),
+    ])
+    mail.both = { from: 'Talent <talent@jobsboard.example>', subject: 'Pine and Quill update', body: 'Unfortunately, we will not be moving forward with your application.', date: '2026-10-20' }
+    await syncGmail()
+    expect(await review()).toEqual(['Matches more than one application'])
+  })
+})

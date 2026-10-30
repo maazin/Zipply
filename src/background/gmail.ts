@@ -6,7 +6,7 @@
 import type { AppliedEntry, AppStatus, StatusEvent } from '@/shared/types'
 import { uid } from '@/shared/defaults'
 import { daysBetween, todayISO, toISODate } from '@/shared/text'
-import { APPLIED_LABEL, buildDiscoveryQuery, buildLabelQuery, buildQueries, classifyEmail, discoverApplication, isJobAlert, matchApplication, nextStatus, sameCompany, titleIn, type Discovered } from '@/core/gmail/rules'
+import { APPLIED_LABEL, buildDiscoveryQuery, buildLabelQuery, buildQueries, classifyEmail, discoverApplication, isJobAlert, matchApplication, mightMatter, nextStatus, sameCompany, titleIn, type Discovered } from '@/core/gmail/rules'
 import { db } from '@/lib/db'
 import { getSettings, updateSettings } from '@/lib/repo'
 import { gfetch, HttpError, SCOPES } from './google'
@@ -151,8 +151,12 @@ let syncing = false
  *    ones it found, reached back to September, and those rows are removed.
  * 14: "No interview for …" and "we wish you success in your search" are
  *    rejections; the AI fallback never sets Offer.
+ * 15: sync places what it can itself: a tie between one company's applications
+ *    goes to the latest, a company the sheet has under another name to that
+ *    row. You're asked only about a decision or next step it can't place, or
+ *    an unreadable email that may be one; the old review list is rebuilt.
  */
-export const RULES_VERSION = 14
+export const RULES_VERSION = 15
 /** An email can arrive a few days before the row's date (logged late, time zones). */
 const GRACE_DAYS = 3
 /** Emails about applications Zipply didn't log, from this long before the first one it did. */
@@ -170,13 +174,26 @@ async function appliedLabels(): Promise<string[]> {
  * system, whose title the email names. Not any job with that title: "Software
  * Engineer" is in half the emails of a week.
  */
-async function knownAs(found: Discovered, text: string, date: string): Promise<boolean> {
+async function knownAs(found: Discovered, text: string, date: string): Promise<AppliedEntry[]> {
   const near = (d: string) => Boolean(d) && Math.abs(Date.parse(d) - Date.parse(date)) <= GRACE_DAYS * 86_400_000
   const lower = text.toLowerCase()
-  return (await db.applied.toArray()).some(
+  return (await db.applied.toArray()).filter(
     (a) => sameCompany(a.company, found.company) || (found.ats !== 'Other' && a.ats === found.ats && near(toISODate(a.dateApplied)) && titleIn(a.title, lower)),
   )
 }
+
+/**
+ * Several applications at one company and an email that names none of their
+ * roles: it's about the latest one it can move (a rejection, say, for the one
+ * still open), else the latest.
+ */
+function latestFor(rows: AppliedEntry[], status: AppStatus | null): AppliedEntry {
+  const newest = [...rows].sort((a, b) => (toISODate(b.dateApplied) || '').localeCompare(toISODate(a.dateApplied) || ''))
+  return (status && newest.find((r) => nextStatus(r.status, status).kind === 'apply')) || newest[0]
+}
+
+/** A decision or a next step, as opposed to an acknowledgment. */
+const decides = (s: AppStatus | null) => s !== null && s !== 'Received' && s !== 'Applied'
 
 /**
  * The first day of the month two weeks before the first application Zipply
@@ -268,19 +285,30 @@ export async function syncGmail(): Promise<SyncResult> {
       const open = (await applied()).filter((a) => (!a.dateApplied || a.dateApplied >= cutoff) && (!a.dateApplied || a.dateApplied <= latest))
       // An application you sent yourself: about the place it went, and it says nothing about a status.
       const about = sent ? { ...email, from: header(m, 'To') } : email
-      const { entry, candidates, also = [] } = matchApplication(about, open)
-      let status = sent ? 'Applied' : classifyEmail(email.subject, email.body)
+      const matched = matchApplication(about, open)
+      const { candidates, also = [] } = matched
+      let status: AppStatus | null = sent ? 'Applied' : classifyEmail(email.subject, email.body)
+      let entry = matched.entry
+      // A tie between applications at the same company is not a puzzle: take the latest.
+      if (!entry && candidates.length > 1 && candidates.every((c) => sameCompany(c.company, candidates[0].company))) entry = latestFor(candidates, status)
 
       const how = { labeled: labeled.has(id), sent }
       const found = !entry && !candidates.length && date >= since ? discoverApplication(about, status, how) : null
-      if (found && !(await knownAs(found, `${email.subject}\n${email.body}`, date))) {
+      const known = found ? await knownAs(found, `${email.subject}\n${email.body}`, date) : []
+      // The sheet has it under another name ("Cleoindia" for Cleo (India)): that row,
+      // if it existed when the email was sent.
+      const knownOpen = known.filter((k) => open.some((o) => o.key === k.key))
+      if (!entry && knownOpen.length && !sent) entry = latestFor(knownOpen, status)
+      if (found && !known.length) {
         // A confirmation in your label that the rules can't read (another language): received.
         await logFromEmail({ ...found, status: status ?? 'Received', date, subject: email.subject })
         added++
       } else if (sent) {
         // Never a status change from your own email.
       } else if (!entry) {
-        if (status || candidates.length) {
+        // You're asked only about a decision or a next step that can't be placed: an
+        // acknowledgment for an application not in the sheet needs nothing from you.
+        if (decides(status) && date >= since) {
           await db.unmatched.put({ messageId: id, reason: candidates.length ? 'Matches more than one application' : 'No matching application', candidates: candidates.map((c) => c.appId), at: Date.now() })
           unmatched++
         }
@@ -292,8 +320,11 @@ export async function syncGmail(): Promise<SyncResult> {
           status = guess === 'Offer' ? null : guess
         }
         if (!status) {
-          await db.unmatched.put({ messageId: id, reason: 'Couldn’t tell what this email means', candidates: [entry.appId], at: Date.now() })
-          unmatched++
+          // Unreadable but maybe about a decision: yours to check. Anything else is noise.
+          if (mightMatter(email.subject, email.body)) {
+            await db.unmatched.put({ messageId: id, reason: 'Couldn’t tell what this email means', candidates: [entry.appId], at: Date.now() })
+            unmatched++
+          }
         } else {
           const t = nextStatus(entry.status, status)
           if (t.kind === 'apply') {
