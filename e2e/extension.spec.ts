@@ -210,6 +210,54 @@ test('Detects and fills an application on a site with no adapter', async () => {
   await late.close()
 })
 
+test('The Zipply tab sits on job pages, opens the panel, and hides per site', async () => {
+  const shop = await context.newPage()
+  await shop.goto('https://shop.example.com/checkout')
+  const job = await context.newPage()
+  await job.goto('https://careers.initech.com/jobs/42')
+  const tab = job.locator('zipply-tab .tab')
+  await expect(tab).toBeVisible({ timeout: 10_000 })
+  // The green dot: there's a form to fill.
+  await expect(tab).toHaveClass(/form/)
+  await shop.waitForTimeout(1500)
+  await expect(shop.locator('zipply-tab')).toHaveCount(0)
+  await shop.close()
+
+  // A click opens the side panel for this tab (Chrome accepts it: the click counts as your action).
+  await worker.evaluate(() => {
+    const g = globalThis as { panelOpens?: string[] }
+    g.panelOpens = []
+    const open = chrome.sidePanel.open.bind(chrome.sidePanel)
+    chrome.sidePanel.open = (o) =>
+      open(o).then(
+        () => void g.panelOpens!.push('opened'),
+        (e: Error) => void g.panelOpens!.push(e.message),
+      )
+  })
+  await tab.click()
+  await expect.poll(() => worker.evaluate(() => (globalThis as { panelOpens?: string[] }).panelOpens)).toEqual(['opened'])
+  await expect(job.locator('zipply-tab .note')).toHaveCount(0)
+
+  // Dragged, it moves and stays where you left it.
+  const box = (await tab.boundingBox())!
+  await job.mouse.move(box.x + 20, box.y + 20)
+  await job.mouse.down()
+  await job.mouse.move(box.x + 20, box.y + 140, { steps: 6 })
+  await job.mouse.up()
+  expect((await tab.boundingBox())!.y).toBeGreaterThan(box.y + 100)
+  await expect.poll(() => worker.evaluate(async () => (await chrome.storage.local.get('sideTabTop')).sideTabTop)).toBeGreaterThan(0)
+
+  await job.locator('zipply-tab').hover()
+  await job.locator('zipply-tab .close').click()
+  await expect(job.locator('zipply-tab .tab')).toHaveCount(0)
+  await job.reload()
+  await job.waitForTimeout(2500)
+  await expect(job.locator('zipply-tab')).toHaveCount(0)
+  expect(await worker.evaluate(async () => (await chrome.storage.local.get('sideTabHidden')).sideTabHidden)).toEqual(['careers.initech.com'])
+  await worker.evaluate(() => chrome.storage.local.remove(['sideTabHidden', 'sideTabTop']))
+  await job.close()
+})
+
 test('Logs a submit that redirects to a different thank-you address', async () => {
   const unlogged = () =>
     worker.evaluate(

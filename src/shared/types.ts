@@ -351,6 +351,8 @@ export interface Settings {
   sheetReady: boolean
   /** Show match scores on LinkedIn and Indeed job listings. */
   listingScores: boolean
+  /** Show the Zipply tab at the right edge of job pages. */
+  sideTab: boolean
   googleEmail: string
   gmailEnabled: boolean
   lastGmailSync: number

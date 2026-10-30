@@ -81,6 +81,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sheetMissing: false,
   sheetReady: false,
   listingScores: true,
+  sideTab: true,
   googleEmail: '',
   gmailEnabled: false,
   lastGmailSync: 0,

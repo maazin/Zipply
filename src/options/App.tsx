@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Profile } from '@/shared/types'
 import { getProfile, saveProfile } from '@/lib/repo'
 import { isLocked, unlock } from '@/lib/keys'
-import { Button, Card, Input, Spinner, cx } from '@/ui/kit'
+import { Button, Card, Input, Logo, Spinner, cx } from '@/ui/kit'
 import { ResumeDrop } from './sections/ResumeDrop'
 import { Basics } from './sections/Basics'
 import { Experience } from './sections/Experience'
@@ -113,7 +113,10 @@ export function App() {
   return (
     <div className="mx-auto flex max-w-6xl gap-10 px-4 py-8 sm:px-8">
       <nav className="sticky top-8 hidden h-fit w-48 shrink-0 flex-col gap-0.5 md:flex" aria-label="Sections">
-        <div className="mb-4 px-2 text-base font-semibold">Zipply</div>
+        <div className="mb-4 flex items-center gap-2 px-2 text-base font-semibold">
+          <Logo size={22} />
+          Zipply
+        </div>
         {NAV.map(([id, label]) => (
           <a key={id} href={`#${id}`} className={cx('rounded-md px-2 py-1.5 text-sm', active === id ? 'bg-surface font-medium text-ink' : 'text-muted hover:text-ink')}>
             {label}

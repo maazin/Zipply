@@ -197,6 +197,15 @@ type Reply = (r: unknown) => void
 chrome.runtime.onMessage.addListener((msg: (ContentToBg | PageToBg) & { target?: string }, sender, reply: Reply) => {
   if (msg?.target === 'offscreen') return false
   if (msg?.type === 'build') return reply({ build: BUILD }), false
+  // Opened right here, not after an await: Chrome only allows it while the click that sent this counts.
+  if (msg?.type === 'panel:open') {
+    if (sender.tab?.id == null) return reply({ error: 'No tab' }), false
+    chrome.sidePanel
+      .open({ tabId: sender.tab.id })
+      .then(() => reply({ ok: true }))
+      .catch((e: unknown) => reply({ error: e instanceof Error ? e.message : String(e) }))
+    return true
+  }
   handle(msg, sender)
     .then(reply)
     .catch((e) => {

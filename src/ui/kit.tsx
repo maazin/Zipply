@@ -1,5 +1,6 @@
 // Small UI kit: thin borders instead of shadows, system font, generous spacing.
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import { LOGO_SVG } from '@/shared/logo'
 
 export function cx(...c: (string | false | null | undefined)[]) {
   return c.filter(Boolean).join(' ')
@@ -106,4 +107,9 @@ export function Spinner() {
 
 export function Empty({ children }: { children: ReactNode }) {
   return <p className="py-6 text-center text-sm text-muted">{children}</p>
+}
+
+/** Zipply's logo. */
+export function Logo({ size = 18 }: { size?: number }) {
+  return <span aria-hidden className="inline-block shrink-0" style={{ width: size, height: size }} dangerouslySetInnerHTML={{ __html: LOGO_SVG.replace('<svg ', '<svg width="100%" height="100%" ') }} />
 }

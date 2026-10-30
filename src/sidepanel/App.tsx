@@ -10,7 +10,7 @@ import { continuesJob, mergePostingInto } from '@/core/jobContext'
 import { ResumeRanking } from '@/ui/ResumeRanking'
 import { sinceSummary } from './since'
 import { db, type UnloggedRow } from '@/lib/db'
-import { Button, Card, Chip, Dot, Empty, Input, Select, Spinner, TextArea, cx } from '@/ui/kit'
+import { Button, Card, Chip, Dot, Empty, Input, Logo, Select, Spinner, TextArea, cx } from '@/ui/kit'
 import contentScript from '@/content/index.ts?script'
 import { scrubPersonal } from '@/content/capture'
 import { panelSkips } from '@/shared/excluded'
@@ -339,7 +339,10 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto flex min-h-screen max-w-xl flex-col gap-4 px-4 py-4">
       <div className="flex items-center justify-between">
-        <span className="text-[13px] font-semibold tracking-tight text-muted">Zipply</span>
+        <span className="flex items-center gap-1.5 text-[13px] font-semibold tracking-tight text-muted">
+          <Logo size={18} />
+          Zipply
+        </span>
         <button aria-label="Profile and settings" title="Profile and settings" onClick={openProfile} className="rounded-md p-1 text-muted hover:bg-sunken hover:text-ink">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
         </button>

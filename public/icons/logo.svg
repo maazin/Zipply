@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><defs><linearGradient id="zipply-g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3D7BFF"/><stop offset="1" stop-color="#6A35F2"/></linearGradient></defs><rect x="4" y="4" width="120" height="120" rx="30" fill="url(#zipply-g)"/>
+<g transform="translate(64 64) skewX(-10) translate(-64 -64)">
+<path d="M42 37 H86 L44 91 H82" fill="none" stroke="#fff" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M80 76 L100 91 L80 106" fill="none" stroke="#fff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M20 55 H31 M16 70 H28" stroke="#fff" stroke-opacity=".6" stroke-width="7" stroke-linecap="round"/>
+</g></svg>

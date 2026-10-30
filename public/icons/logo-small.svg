@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><defs><linearGradient id="zipply-g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3D7BFF"/><stop offset="1" stop-color="#6A35F2"/></linearGradient></defs><rect x="4" y="4" width="120" height="120" rx="30" fill="url(#zipply-g)"/>
+<g transform="translate(64 64) skewX(-10) translate(-64 -64)">
+<path d="M38 36 H88 L42 92 H96" fill="none" stroke="#fff" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M84 76 L102 92 L84 108" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</g></svg>

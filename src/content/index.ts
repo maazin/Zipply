@@ -1,6 +1,7 @@
-// Content script. Stays invisible: no buttons or banners on job sites. It
-// reports what it finds to the service worker (for the toolbar dot), fills when
-// you press "Fill this page", keeps filling each new step of a multi-page flow,
+// Content script. On job pages it adds only the small Zipply tab at the right
+// edge (it opens the panel); nothing else is drawn on job sites. It reports
+// what it finds to the service worker (for the toolbar dot), fills when you
+// press "Fill this page", keeps filling each new step of a multi-page flow,
 // and logs the job when the confirmation page appears.
 import type { FieldReport, Posting } from '@/shared/types'
 import type { FillContext, PageToContent, ScanResult } from '@/shared/messages'
@@ -13,6 +14,7 @@ import { fillPage, lastReports, refreshMissing, tracked, watchAnswers } from './
 import { genericPosting, mergePosting, postingFromJsonLd } from './posting'
 import { detectApplication } from './detect'
 import { sanitizeForm } from './capture'
+import { showSideTab, watchSideTab } from './sideTab'
 import { clearStale, decorateCards, handshakeApplications, isHandshakeApplications, isListingHost, listingPosting, pillFor, placePill, siteFor, type ListingScore } from './listings'
 
 declare global {
@@ -100,6 +102,7 @@ function main() {
     const p = postingFromJsonLd(document)
     if (!p || (!p.title && !p.company) || (p.description ?? '').length < 200) return
     seenJob = key
+    void showSideTab('job')
     send({ type: 'job:seen', posting: mergePosting(location.href, p) }).catch(() => undefined)
   }
 
@@ -124,6 +127,7 @@ function main() {
     }
     reported = true
     const fields = confirmation ? 0 : fieldCount()
+    if (!confirmation) void showSideTab(fields > 0 ? 'form' : 'job')
     const status = `${adapter.name}|${fields}|${confirmation}|${location.href}`
     if (status !== lastStatus) {
       lastStatus = status
@@ -270,6 +274,7 @@ function main() {
     // The job you have open is the one "Apply" is for.
     if (p && seenListing !== p.jobId) {
       seenListing = p.jobId
+      void showSideTab('job')
       send({ type: 'job:seen', posting: p }).catch(() => undefined)
     }
     const appliedOn = p ? site.appliedOn?.(document, p.jobId) : ''
@@ -304,6 +309,10 @@ function main() {
     listingObserver.observe(document.documentElement, { childList: true, subtree: true })
     void tickListings()
   }
+
+  watchSideTab()
+  // A job page on a known applicant system (Greenhouse, Lever…) gets the tab even before its form shows.
+  if (adapter.name !== 'Other') void showSideTab('job')
 
   // Check right away: a confirmation page may be closed within a second.
   // First learn whether you pressed Fill earlier in this tab (maybe on another site).

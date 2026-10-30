@@ -88,6 +88,8 @@ export type ContentToBg =
   | { type: 'auto:set'; resumeId: string | null }
   | { type: 'auto:clear' }
   | { type: 'report:update'; reports: FieldReport[] }
+  /** The Zipply tab on the page was clicked. */
+  | { type: 'panel:open' }
 
 // Panel / options → service worker
 export type PageToBg =

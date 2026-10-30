@@ -4,6 +4,7 @@ import { send } from '@/shared/messages'
 import { getGeminiKey, getSettings, setGeminiKey, updateSettings } from '@/lib/repo'
 import { usageToday } from '@/lib/usage'
 import { nanoStatus, type NanoStatus } from '@/lib/nano'
+import { local } from '@/lib/store'
 import { Button, Field, Input, Spinner, Toggle } from '@/ui/kit'
 import { Section } from '../App'
 
@@ -23,6 +24,7 @@ export function Connections() {
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof usageToday>>>([])
   const [nano, setNano] = useState<NanoStatus>('unsupported')
   const [queue, setQueue] = useState<{ id: number; label: string; attempts: number; lastError: string }[]>([])
+  const [hiddenOn, setHiddenOn] = useState<string[]>([])
 
   const refresh = useCallback(async () => {
     setS(await getSettings())
@@ -30,6 +32,7 @@ export function Connections() {
     setUsage(await usageToday())
     setNano(await nanoStatus())
     setQueue(await send<typeof queue>({ type: 'queue:list' }).catch(() => []))
+    setHiddenOn((await local.get<string[]>('sideTabHidden')) ?? [])
   }, [])
   useEffect(() => {
     refresh()
@@ -153,6 +156,17 @@ export function Connections() {
           </div>
           <div className="mt-3">
             <Toggle checked={s.listingScores} label="Show match scores on LinkedIn and Indeed" hint="When you open a job in the results, a small score appears by its title and on its card. Scored on this laptop; nothing is fetched in the background." onChange={(v) => patch({ listingScores: v })} />
+          </div>
+          <div className="mt-3">
+            <Toggle checked={s.sideTab} label="Show the Zipply tab on job pages" hint="A small tab at the right edge that opens this panel. Drag it up or down; its × hides it on one site." onChange={(v) => patch({ sideTab: v })} />
+            {s.sideTab && hiddenOn.length > 0 && (
+              <div className="mt-1 flex flex-wrap items-center gap-2 pl-12 text-xs text-muted">
+                <span>Hidden on {hiddenOn.join(', ')}</span>
+                <Button size="sm" variant="ghost" onClick={async () => (await local.remove('sideTabHidden'), setHiddenOn([]))}>
+                  Show everywhere
+                </Button>
+              </div>
+            )}
           </div>
           <div className="mt-4">
             <div className="text-[13px] font-medium">Calls today</div>
