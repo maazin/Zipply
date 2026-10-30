@@ -13,6 +13,7 @@ import { db, type UnloggedRow } from '@/lib/db'
 import { Button, Card, Chip, Dot, Empty, Input, Select, Spinner, TextArea, cx } from '@/ui/kit'
 import contentScript from '@/content/index.ts?script'
 import { scrubPersonal } from '@/content/capture'
+import { panelSkips } from '@/shared/excluded'
 
 type Phase = 'loading' | 'locked' | 'setup' | 'unsupported' | 'permission' | 'ready'
 
@@ -102,7 +103,8 @@ export function App() {
     if (!p.basics.firstName && !rs.length) return setPhase('setup')
     const t = await activeTab()
     setTab(t)
-    if (!t?.id || !/^https?:/.test(t.url ?? '')) return setPhase('unsupported')
+    // Sites Zipply skips (YouTube, Gmail, Docs…) stay untouched here too.
+    if (!t?.id || panelSkips(t.url ?? '')) return setPhase('unsupported')
     const frameIds = await ensureInjected(t.id)
     if (!frameIds) return setPhase('permission')
     const scan = await scanFrames(t.id, frameIds)

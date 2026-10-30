@@ -20,3 +20,8 @@ export function isExcluded(url: string): boolean {
     return true
   }
 }
+
+/** Sites the side panel leaves alone: the excluded ones, except Google Forms, which it fills on request. */
+export function panelSkips(url: string): boolean {
+  return isExcluded(url) && !/^https:\/\/docs\.google\.com\/forms\//.test(url)
+}
