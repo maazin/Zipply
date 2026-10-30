@@ -237,6 +237,11 @@ test('The Zipply tab sits on job pages, opens the panel, and hides per site', as
   await tab.click()
   await expect.poll(() => worker.evaluate(() => (globalThis as { panelOpens?: string[] }).panelOpens)).toEqual(['opened'])
   await expect(job.locator('zipply-tab .note')).toHaveCount(0)
+  // Close it again: an open panel follows every tab and would change what later tests see.
+  await worker.evaluate(async () => {
+    await chrome.sidePanel.setOptions({ enabled: false })
+    await chrome.sidePanel.setOptions({ enabled: true })
+  })
 
   // Dragged, it moves and stays where you left it.
   const box = (await tab.boundingBox())!
@@ -329,11 +334,35 @@ test('Scans a Lever posting and the side panel renders', async () => {
   await page.close()
 })
 
+test('The panel shows the keywords you match, and Pause stops filling the next steps', async () => {
+  const page = await context.newPage()
+  const panel = await context.newPage()
+  try {
+    await page.goto('https://www.linkedin.com/jobs/search/?currentJobId=111')
+    const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://www.linkedin.com/*' }))[0].id!)
+    await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
+    await expect(panel.getByTestId('matched-keywords')).toContainText('Top matches', { timeout: 15_000 })
+    await expect(panel.getByTestId('matched-keywords')).toContainText('SQL')
+
+    // No form here yet: Zipply waits to fill the application when Apply opens it. Pause cancels that.
+    await panel.getByRole('button', { name: 'Fill the application when it opens' }).click()
+    await expect(panel.getByRole('button', { name: 'Pause' })).toBeVisible()
+    expect(await worker.evaluate((id) => chrome.storage.session.get(`auto:${id}`), tabId)).not.toEqual({})
+    await panel.getByRole('button', { name: 'Pause' }).click()
+    await expect(panel.getByTestId('paused')).toBeVisible()
+    await expect(panel.getByRole('button', { name: 'Pause' })).toHaveCount(0)
+    expect(await worker.evaluate((id) => chrome.storage.session.get(`auto:${id}`), tabId)).toEqual({})
+  } finally {
+    await panel.close()
+    await page.close()
+  }
+})
+
 test('Shows a match score on a LinkedIn job and its card', async () => {
   const page = await context.newPage()
   await page.goto('https://www.linkedin.com/jobs/search/?currentJobId=111')
   const detail = page.locator('.jobs-search__job-details--container [data-zipply-pill="111"]')
-  await expect(detail).toHaveText(/^\d+ · (Apply|Maybe|Skip)$/, { timeout: 10_000 })
+  await expect(detail).toHaveText(/^\d+ · (Apply|Maybe|Skip)( · ✓ [^·]+)?$/, { timeout: 10_000 })
   await expect(page.locator('li[data-occludable-job-id="111"] [data-zipply-pill="111"]')).toHaveText(/^\d+ · /)
   await expect(page.locator('[data-zipply-pill="222"]')).toHaveCount(0)
   // Inside the h1, on the title's line.
@@ -455,7 +484,7 @@ test('Ranks all your resumes for a job and suggests the best', async () => {
   const li = await context.newPage()
   await li.goto('https://www.linkedin.com/jobs/search/?currentJobId=111')
   const pillEl = li.locator('.jobs-search__job-details--container [data-zipply-pill="111"]')
-  await expect(pillEl).toHaveText(/^\d+ · (Apply|Maybe|Skip) · resume\.pdf$/, { timeout: 10_000 })
+  await expect(pillEl).toHaveText(/^\d+ · (Apply|Maybe|Skip) · resume\.pdf( · ✓ [^·]+)?$/, { timeout: 10_000 })
   await expect(pillEl.locator('span')).toHaveAttribute('title', /Best resume: resume\.pdf \(\d+\)\nOthers: Frontend \d+/)
   await li.close()
 })

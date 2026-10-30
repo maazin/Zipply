@@ -11,14 +11,21 @@ export interface Keyword {
   weight: number
 }
 
-const REQUIRED_HEAD = /^(requirements?|required|must[- ]haves?|minimum qualifications?|basic qualifications?|what you('|’)?ll need|what we('|’)?re looking for|you have|qualifications|who you are|skills( and| &) experience)\b/i
+const REQUIRED_HEAD = /^(requirements?|required|must[- ]haves?|minimum qualifications?|basic qualifications?|what you('|’)?ll need|what we('|’)?re looking for|you have|qualifications|who you are|about you|skills( and| &) experience)\b/i
 const PREFERRED_HEAD = /^(preferred|nice[- ]to[- ]haves?|bonus|pluses|plus|preferred qualifications?|additional qualifications?|it('|’)?s a plus|extra credit|good to have)\b/i
-const OTHER_HEAD = /^(about (us|the company|the team)|benefits|perks|what we offer|compensation|equal opportunity|eeo|our values|why join|responsibilities|what you('|’)?ll do|the role|about the role|day to day)\b/i
+const OTHER_HEAD = /^(responsibilities|what you('|’)?ll do|the role|about the role|role overview|day to day|your impact|about the (job|position|opportunity))\b/i
+// About the employer, not the job: its products and perks aren't skills you need.
+const IGNORE_HEAD = /^(about (us|the company|the team|[A-Z][\w&.' -]{1,40})|who we are|our (company|mission|story|values|culture|team)|benefits|perks|what we offer|compensation|pay (range|transparency)|salary|equal (employment )?opportunity|eeo|diversity|accommodations?|why (join|work)|life at|privacy|disclaimer|how to apply|application process)\b/i
+// Legal and recruiting boilerplate that can sit anywhere.
+const BOILERPLATE = /equal opportunity employer|without regard to|regardless of (race|age|gender)|reasonable accommodation|e-?verify|privacy (policy|notice)|applicants? (with|who require)|protected (veteran|status|characteristic)/i
 
-/** Split a posting into required / preferred / other text by its headings. */
+/**
+ * Split a posting into required / preferred / other text by its headings.
+ * Sections about the employer (About us, Benefits, EEO) are left out.
+ */
 export function splitPosting(text: string): Record<KeywordTier, string> {
   const out: Record<KeywordTier, string[]> = { required: [], preferred: [], other: [] }
-  let tier: KeywordTier = 'other'
+  let tier: KeywordTier | 'ignore' = 'other'
   for (const raw of text.split(/\n+/)) {
     const line = raw.trim()
     if (!line) continue
@@ -36,8 +43,13 @@ export function splitPosting(text: string): Record<KeywordTier, string> {
       tier = 'other'
       continue
     }
+    if (isHeading && IGNORE_HEAD.test(head)) {
+      tier = 'ignore'
+      continue
+    }
+    if (tier === 'ignore' || BOILERPLATE.test(line)) continue
     // Inline cues inside a bullet override the section.
-    let lineTier = tier
+    let lineTier: KeywordTier = tier
     if (/\b(preferred|nice to have|a plus|is a plus|bonus)\b/i.test(line)) lineTier = 'preferred'
     else if (/\b(required|must have|must be|minimum of)\b/i.test(line)) lineTier = 'required'
     out[lineTier].push(line)

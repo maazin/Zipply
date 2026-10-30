@@ -4,7 +4,7 @@
 // Nothing is fetched in the background: only jobs you open are scored.
 import type { Posting, Verdict } from '@/shared/types'
 import { toISODate } from '@/shared/text'
-import { htmlToText, mergePosting } from './posting'
+import { cleanText, mergePosting } from './posting'
 
 export interface ListingSite {
   name: 'LinkedIn' | 'Indeed' | 'Handshake'
@@ -179,7 +179,7 @@ export function listingPosting(site: ListingSite, doc: Document, url: URL): Post
   const id = site.jobId(url, doc)
   const extra = site.read?.(doc) ?? {}
   const descEl = site.description ? doc.querySelector<HTMLElement>(site.description) : null
-  const description = extra.description ?? (descEl ? htmlToText(descEl.innerHTML) : '')
+  const description = extra.description ?? (descEl ? cleanText(descEl) : '')
   // The title without our own pill's text.
   const titleEl = doc.querySelector(site.title)
   const title = titleEl ? Array.from(titleEl.childNodes).filter((n) => !(n instanceof Element && n.hasAttribute('data-zipply-pill'))).map((n) => n.textContent).join('').replace(/\s+/g, ' ').trim() : ''
@@ -202,6 +202,8 @@ export interface ListingScore {
   resumes?: { label: string; score: number }[]
   /** Too little of the posting to score. */
   thin?: boolean
+  /** The posting's top keywords your best resume has. */
+  matched?: string[]
 }
 
 const COLORS: Record<Verdict, string> = { Apply: '#15803d', Maybe: '#b45309', Skip: '#c42121' }
@@ -222,18 +224,20 @@ export function pill(doc: Document, jobId: string, s: ListingScore): HTMLElement
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
 const short = (t: string) => (t.length > 16 ? `${t.slice(0, 15)}…` : t)
 
-/** "78 · Apply", plus the best resume's name when you have more than one. */
+/** "78 · Apply", the best resume's name when you have more than one, and the top two keywords you match. */
 export function pillLabel(s: ListingScore): string {
   if (s.applied) return 'Applied'
   if (s.thin) return 'Not enough detail'
   const base = s.score == null ? s.verdict : `${s.score} · ${s.verdict}`
   const best = s.resumes?.[0]
-  return best && s.resumes!.length > 1 ? `${base} · ${esc(short(best.label))}` : base
+  const withResume = best && s.resumes!.length > 1 ? `${base} · ${esc(short(best.label))}` : base
+  return s.matched?.length ? `${withResume} · ✓ ${esc(s.matched.slice(0, 2).join(', '))}` : withResume
 }
 
 /** The hover text: the verdict's reason, then every resume's score. */
 export function pillTitle(s: ListingScore): string {
   const lines = [`Zipply: ${s.reason}`]
+  if (s.matched?.length) lines.push(`Matched: ${s.matched.join(', ')}`)
   if (s.resumes && s.resumes.length > 1) {
     lines.push(`Best resume: ${s.resumes[0].label} (${s.resumes[0].score})`)
     lines.push(`Others: ${s.resumes.slice(1).map((r) => `${r.label} ${r.score}`).join(', ')}`)

@@ -58,7 +58,7 @@ describe('Greenhouse', () => {
     // Never ticks the consent box, never touches the open question without AI.
     expect((document.querySelector('#q6') as HTMLInputElement).checked).toBe(false)
     expect(val('#q5')).toBe('')
-    const filled = reports.filter((r) => r.status === 'filled').length
+    const filled = reports.filter((r) => r.status !== 'skipped').length
     expect(filled).toBeGreaterThanOrEqual(8)
   }, 20000)
 
@@ -144,6 +144,44 @@ describe('Fallback on a company-built form', () => {
     expect(g.company).toBe('Initech')
     expect(g.description).toContain('Airflow')
   })
+
+  it("reads only the description, not the menus, cookie banner, similar jobs or footer around it", () => {
+    document.body.innerHTML = `
+      <header><nav><a>Jobs</a><a>Kubernetes blog</a></nav></header>
+      <div class="cookie-banner">We use cookies and Salesforce analytics.</div>
+      <main>
+        <h1>Data Analyst</h1>
+        <div class="layout">
+          <article class="job-description">
+            <h3>Responsibilities</h3><p>Turn data into decisions for the operations team every day.</p>
+            <h3>Requirements</h3><ul><li>2+ years of experience with SQL</li><li>Python</li></ul>
+            <button>Apply now</button>
+          </article>
+          <aside><h3>Similar jobs</h3><p>Senior Designer, requirements: Figma and Kubernetes</p></aside>
+        </div>
+        <section><h3>Similar jobs</h3><p>Backend Engineer. Requirements: Go and AWS.</p></section>
+        <form><label>First name <input></label><label>LinkedIn profile <input></label></form>
+      </main>
+      <footer>Privacy policy · Careers at Globex · Tableau</footer>`
+    const d = genericPosting(document).description!
+    expect(d).toContain('SQL')
+    expect(d).toContain('Turn data into decisions')
+    for (const noise of ['cookies', 'Kubernetes', 'Salesforce', 'Figma', 'Backend Engineer', 'AWS', 'First name', 'LinkedIn', 'Privacy', 'Tableau', 'Apply now'])
+      expect(d).not.toContain(noise)
+  })
+
+  it('stops filling when you pause, leaving the rest as it was', async () => {
+    const url = load('custom.html', 'https://careers.initech.com/jobs/42')
+    // You press Pause as soon as the first field is filled.
+    const reports = await fillPage(pickAdapter(url, document), ctx(), document, new Set(), {
+      stopped: () => Array.from(document.querySelectorAll('input')).some((i) => i.value),
+    })
+    // The first field filled; the pause landed before the next.
+    const filled = reports.filter((r) => r.status !== 'skipped')
+    expect(filled.length).toBe(1)
+    expect(reports.filter((r) => r.reason === 'Paused').length).toBeGreaterThan(2)
+    expect(val('input[name="pc"]')).toBe('')
+  }, 20000)
 
   it('collects every field with a label', () => {
     load('custom.html', 'https://careers.initech.com/jobs/42')

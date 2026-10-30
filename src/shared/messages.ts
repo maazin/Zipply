@@ -101,6 +101,8 @@ export type PageToBg =
   | { type: 'google:connect' }
   | { type: 'sheet:create' }
   | { type: 'auto:arm'; tabId: number; resumeId: string | null }
+  /** Pause: stop the fill under way in this tab, and don't fill its next steps. */
+  | { type: 'auto:stop'; tabId: number }
   | { type: 'sheet:check' }
   | { type: 'build' }
   | { type: 'google:disconnect' }

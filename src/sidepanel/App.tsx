@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppliedEntry, FieldReport, Posting, Profile, ResumeMeta, Settings, StatusEvent, UnmatchedEmail } from '@/shared/types'
 import type { AiText, FrameInfo, JobContext, LogResult, ScanResult } from '@/shared/messages'
 import { isError, send, sendToFrame } from '@/shared/messages'
@@ -205,9 +205,23 @@ export function App() {
   }, [tab?.id, posting, ats, resumeId, match, verdict, checks, resumes])
 
   const [armed, setArmed] = useState(false)
+  const [paused, setPaused] = useState(false)
+  // Read by a fill already under way, which the state above can't reach.
+  const pausedRef = useRef(false)
+
+  /** Stop the fill under way, and the next steps: nothing more is filled until you press Fill. */
+  async function pause() {
+    if (!tab?.id) return
+    pausedRef.current = true
+    setPaused(true)
+    setArmed(false)
+    await send({ type: 'auto:stop', tabId: tab.id }).catch(() => undefined)
+  }
 
   async function fill() {
     if (!tab?.id) return
+    pausedRef.current = false
+    setPaused(false)
     // On a posting page: fill the application form as soon as "Apply" opens it.
     if (!hasForm) {
       await send({ type: 'auto:arm', tabId: tab.id, resumeId })
@@ -215,12 +229,15 @@ export function App() {
       return
     }
     setFilling(true)
+    // After this page, the next steps fill as they open (until you pause).
+    setArmed(true)
     setError('')
     try {
       const targets = frames.filter((f) => (f as FrameInfo & { scan?: ScanResult | null }).scan?.fields ?? f.fields)
       const list = targets.length ? targets : frames
       let all: FieldReport[] = []
       for (const f of list) {
+        if (pausedRef.current) break
         // Never spin forever: what was filled stays filled either way.
         const r = await Promise.race([
           sendToFrame<{ reports: FieldReport[] } | { error: string }>(tab.id, f.frameId, { type: 'fill', resumeId }),
@@ -303,14 +320,25 @@ export function App() {
       )}
 
       <div className="flex flex-col gap-2">
-        <Button variant="primary" size="lg" onClick={fill} disabled={filling || (!hasForm && (!posting || armed))}>
-          {filling ? <><Spinner /> Filling…</> : hasForm ? 'Fill this page' : armed ? 'Will fill the application' : 'Fill the application when it opens'}
-        </Button>
-        {!hasForm && (
+        <div className="flex gap-2">
+          <Button variant="primary" size="lg" className="flex-1" onClick={fill} disabled={filling || (!hasForm && (!posting || armed))}>
+            {filling ? <><Spinner /> Filling…</> : hasForm ? 'Fill this page' : armed ? 'Will fill the application' : 'Fill the application when it opens'}
+          </Button>
+          {(filling || armed) && (
+            <Button size="lg" onClick={pause} title="Stop filling. Nothing more is filled, on this page or the next steps, until you press Fill.">
+              Pause
+            </Button>
+          )}
+        </div>
+        {paused ? (
+          <p className="text-center text-xs text-muted" data-testid="paused">Paused. Nothing more is filled until you press Fill.</p>
+        ) : !hasForm ? (
           <p className="text-center text-xs text-muted">
             {armed ? 'Click Apply on the page. The form fills as it opens, here or in a new tab.' : posting ? 'No form here yet. Press this, then Apply.' : 'No application form on this page yet.'}
           </p>
-        )}
+        ) : armed && !filling ? (
+          <p className="text-center text-xs text-muted">The next steps fill as they open.</p>
+        ) : null}
         {error && <p className="text-center text-xs text-bad">{error}</p>}
       </div>
 
@@ -427,6 +455,9 @@ function VerdictCard({ checks, verdict }: { checks: ChecksResult; verdict: NonNu
   )
 }
 
+/** How many matched keywords the score card shows (the posting's most important first). */
+const TOP_MATCHES = 8
+
 function MatchCard({ checks, match, resumeId, onResume, tabId }: { checks: ChecksResult; match: ChecksResult['matches'][number]; resumeId: string | null; onResume: (id: string) => void; tabId: number }) {
   const [showAts, setShowAts] = useState(false)
   const [tips, setTips] = useState<AiText | null>(null)
@@ -471,8 +502,14 @@ function MatchCard({ checks, match, resumeId, onResume, tabId }: { checks: Check
         </ul>
       )}
 
-      {(match.canAdd.length > 0 || match.realGap.length > 0) && (
+      {!checks.thin && (match.matched.length > 0 || match.canAdd.length > 0 || match.realGap.length > 0) && (
         <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
+          {match.matched.length > 0 && (
+            <div data-testid="matched-keywords">
+              <div className="text-xs text-muted">Top matches ({match.matched.length} of {match.matched.length + match.canAdd.length + match.realGap.length} keywords)</div>
+              <div className="mt-1 flex flex-wrap gap-1">{match.matched.slice(0, TOP_MATCHES).map((k) => <Chip key={k} tone="ok">{k}</Chip>)}</div>
+            </div>
+          )}
           {match.canAdd.length > 0 && (
             <div>
               <div className="text-xs text-muted">Can add (you have these)</div>

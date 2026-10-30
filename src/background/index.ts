@@ -3,7 +3,7 @@
 import type { AppStatus, AtsName, Posting } from '@/shared/types'
 import { continuesJob, JOB_TTL, mergePostingInto, samePosting } from '@/core/jobContext'
 import { canonicalUrl } from '@/core/score/applied'
-import type { ContentToBg, FillContext, FrameInfo, JobContext, PageToBg } from '@/shared/messages'
+import type { ContentToBg, FillContext, FrameInfo, JobContext, PageToBg, PageToContent } from '@/shared/messages'
 import { LockedError } from '@/lib/keys'
 import { getAnswerBank, getProfile, getResume, getSettings, listResumes, saveAnswer, markAnswerUsed, updateSettings } from '@/lib/repo'
 import { clearOldLimitMarks } from '@/lib/usage'
@@ -284,6 +284,11 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
     case 'auto:clear':
       if (tabId != null) await session.remove(autoKey(tabId))
       return null
+    case 'auto:stop':
+      await session.remove(autoKey(msg.tabId))
+      // Every frame: the form may be in one, the next step in another.
+      await chrome.tabs.sendMessage(msg.tabId, { type: 'stop' } satisfies PageToContent).catch(() => undefined)
+      return { ok: true }
     case 'fill:context':
       return fillContext(tabId, msg.resumeId)
     case 'report:update':
@@ -303,6 +308,7 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
         thin: c.thin,
         applied: Boolean(c.applied.alreadyApplied),
         resumes: c.comparison.rows.map((r) => ({ label: r.label, score: r.score })),
+        matched: c.thin ? [] : (c.best?.matched.slice(0, 5) ?? []),
       }
       scoreCache.set(key, { at: Date.now(), result })
       return result

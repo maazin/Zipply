@@ -58,6 +58,10 @@ describe('listing pill text', () => {
     expect(pillLabel({ ...s, resumes: [{ label: 'Data', score: 78 }, { label: 'Backend', score: 60 }] })).toBe('78 · Apply · Data')
     expect(pillLabel({ ...s, resumes: [{ label: 'A very long resume name.pdf', score: 78 }, { label: 'B', score: 1 }] })).toBe('78 · Apply · A very long res…')
     expect(pillLabel({ ...s, applied: true, resumes: [{ label: 'Data', score: 78 }, { label: 'B', score: 1 }] })).toBe('Applied')
+    // The top two keywords you match, after the score.
+    expect(pillLabel({ ...s, matched: ['Python', 'SQL', 'Airflow'] })).toBe('78 · Apply · ✓ Python, SQL')
+    expect(pillLabel({ ...s, matched: ['Python'], resumes: [{ label: 'Data', score: 78 }, { label: 'B', score: 1 }] })).toBe('78 · Apply · Data · ✓ Python')
+    expect(pillTitle({ ...s, matched: ['Python', 'SQL'] })).toContain('Matched: Python, SQL')
   })
 
   it('lists every resume score on hover, and escapes names', () => {

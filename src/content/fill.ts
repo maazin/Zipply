@@ -110,6 +110,8 @@ export interface FillOptions {
    * lands. Drafts take several AI calls each: the fill shouldn't wait on them.
    */
   onDrafts?: (reports: FieldReport[]) => void
+  /** True once you pause: the fields not reached yet are left as they are. */
+  stopped?: () => boolean
 }
 
 export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document = document, skip: Set<string> = new Set(), opts: FillOptions = {}): Promise<FieldReport[]> {
@@ -158,6 +160,10 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
   const toDraft: { c: Collected; label: string; at: number }[] = []
   for (const item of plan) {
     const c = byZid.get(item.zid)!
+    if (opts.stopped?.()) {
+      reports.push(report(c, 'skipped', 'none', { key: item.key, reason: 'Paused' }))
+      continue
+    }
     if (item.action === 'fill') {
       const r = await apply(c, item, ctx)
       tracked.set(c.desc.zid, { c, key: item.key, source: item.source, filled: readValue(c) })
@@ -181,17 +187,21 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
 
   lastReports = refreshMissing(reports, doc)
   if (!toDraft.length) return lastReports
-  const drafts = draftAll(toDraft, reports, doc, opts.onDrafts)
+  const drafts = draftAll(toDraft, reports, doc, opts.onDrafts, opts.stopped)
   if (opts.onDrafts) return lastReports
   await drafts
   return lastReports
 }
 
 /** Draft each open question in turn, replacing its "Writing a draft…" report. */
-async function draftAll(items: { c: Collected; label: string; at: number }[], reports: FieldReport[], doc: Document, onEach?: (reports: FieldReport[]) => void) {
+async function draftAll(items: { c: Collected; label: string; at: number }[], reports: FieldReport[], doc: Document, onEach?: (reports: FieldReport[]) => void, stopped?: () => boolean) {
   items.forEach(({ c }) => drafting.add(c.desc.zid))
   for (const { c, label, at } of items) {
     try {
+      if (stopped?.()) {
+        reports[at] = report(c, 'skipped', 'none', { reason: 'Paused' })
+        continue
+      }
       const maxWords = (c.el as HTMLTextAreaElement).maxLength > 0 ? Math.max(20, Math.floor((c.el as HTMLTextAreaElement).maxLength / 7)) : c.desc.kind === 'text' ? 40 : 150
       const ai = await within(send<AiText | { error: string }>({ type: 'ai:answer', question: label, maxWords }), AI_DRAFT_MS).catch(() => null)
       // You may have typed an answer while it was drafting.

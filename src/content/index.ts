@@ -66,6 +66,8 @@ function main() {
   let confirmedFor = ''
   let lastStatus = ''
   let filling = false
+  // You pressed Pause: stop between fields, and don't fill the next steps.
+  let paused = false
   const done = new Set<string>()
   // Zipply runs on every site but stays idle until the page looks like an
   // application (or you filled here earlier in this tab).
@@ -155,6 +157,7 @@ function main() {
       // Drafts for open questions arrive afterwards, one update each.
       const reports = await fillPage(adapter, ctx, document, auto ? done : new Set(), {
         onDrafts: (drafted) => void send({ type: 'report:update', reports: drafted }).catch(() => undefined),
+        stopped: () => paused,
       })
       reports.forEach((r) => r.zid && done.add(r.zid))
       send({ type: 'fill:done', reports, auto }).catch(() => undefined)
@@ -220,6 +223,7 @@ function main() {
             posting: await getPosting(),
           } satisfies ScanResult
         case 'fill':
+          paused = false
           setAuto({ resumeId: msg.resumeId })
           active = true
           return { reports: await run(msg.resumeId, false) }
@@ -240,6 +244,7 @@ function main() {
         case 'capture':
           return { html: sanitizeForm(document, location.href), fields: fieldCount() }
         case 'stop':
+          paused = true
           setAuto(null)
           return { ok: true }
       }

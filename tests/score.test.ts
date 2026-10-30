@@ -67,6 +67,29 @@ describe('keywords', () => {
     expect(snow.tier).toBe('preferred')
     expect(sql.weight).toBeGreaterThan(snow.weight)
   })
+  it('leaves out what the employer says about itself, its benefits and the legal notes', () => {
+    const jd = `About Globex
+Globex runs on Kubernetes and Salesforce across 40 countries.
+
+What you'll do
+Build reports for the finance team.
+
+Requirements:
+- Python and SQL
+
+Benefits
+Free AWS certification courses.
+
+Globex is an equal opportunity employer and does not discriminate; we use Tableau to track hiring.`
+    const terms = extractKeywords(jd).map((k) => k.term)
+    expect(terms).toEqual(expect.arrayContaining(['Python', 'SQL']))
+    expect(terms).not.toContain('Kubernetes')
+    expect(terms).not.toContain('Salesforce')
+    expect(terms).not.toContain('AWS')
+    expect(terms).not.toContain('Tableau')
+    // "About you" is about you, not the employer.
+    expect(splitPosting('About you:\n- Strong Excel skills').required).toContain('Excel')
+  })
 })
 
 describe('keyword matching on real postings', () => {
