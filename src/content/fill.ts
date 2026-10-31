@@ -1,5 +1,6 @@
 // Fill one page: adapter mappings, repeating sections, rules + answer bank, then
-// the AI field mapper for leftovers (labels only), then drafts for open questions.
+// the AI field mapper for leftovers (labels only), then AI answers for the
+// questions left: picks for multiple-choice ones, drafts for written ones.
 // Never clicks Next or Submit.
 import type { FieldReport, FillSource, FieldStatus } from '@/shared/types'
 import type { AiText, FillContext } from '@/shared/messages'
@@ -8,12 +9,14 @@ import { KEY_DEF, type ProfileKey } from '@/shared/profileKeys'
 import { planFields, resolveValue, type PlanItem } from '@/core/matching/plan'
 import { shouldRemember, shouldRememberCorrection } from '@/core/answerBank'
 import { collectFields, findByZid, readValue, type Collected } from './dom/collect'
-import { humanPause, sleep, setCheckboxGroup, setChecked, setCombobox, setFile, setRadio, setSelect, setText } from './dom/setValue'
+import { comboboxOptions, humanPause, sleep, setCheckboxGroup, setChecked, setCombobox, setFile, setRadio, setSelect, setText } from './dom/setValue'
 import type { Adapter } from './adapters'
 
-const MAX_DRAFTS_PER_PAGE = 4
+const MAX_DRAFTS_PER_PAGE = 5
+const MAX_CHOICES_PER_PAGE = 8
 /** The AI gets this long per call; a slow or stuck model never holds up the fill. */
 const AI_MAP_MS = 20_000
+const AI_CHOOSE_MS = 20_000
 const AI_DRAFT_MS = 60_000
 const within = <T>(p: Promise<T>, ms: number): Promise<T | null> => Promise.race([p, sleep(ms).then(() => null)])
 /** Questions being drafted right now, so pressing Fill again doesn't draft them twice. */
@@ -32,14 +35,35 @@ export interface Tracked {
 export const tracked = new Map<string, Tracked>()
 export let lastReports: FieldReport[] = []
 
+const labelOf = (c: Collected) => c.desc.label || c.desc.ariaLabel || c.desc.placeholder
+
+/** A written question: any text area, or a text box whose label asks something. */
 function isQuestion(c: Collected): boolean {
-  const label = c.desc.label || c.desc.ariaLabel || c.desc.placeholder
+  const label = labelOf(c)
   if (c.desc.kind === 'textarea') return label.length > 3
-  return c.desc.kind === 'text' && (label.trim().endsWith('?') || label.split(' ').length >= 7)
+  return c.desc.kind === 'text' && (label.trim().endsWith('?') || label.trim().split(/\s+/).length >= 4)
 }
 
-/** Questions never drafted by AI. Whole words, so "managed" or "page" don't count as "age". */
+const CHOICE_KINDS = new Set(['select', 'radio', 'checkbox-group', 'combobox'])
+/** "Select…", "-- Choose --" and empty first options aren't answers. */
+const PLACEHOLDER = /^\s*$|^[-–—\s]*(select|choose|pick|please (select|choose)|none selected)\b/i
+
+/** Questions never answered by AI. Whole words, so "managed" or "page" don't count as "age". */
 export const SENSITIVE_Q = /\b(salary|salaries|compensation|pay|pay rate|sponsor\w*|visa|authori[sz]ed|authori[sz]ation|citizen\w*|gender|race|ethnicity|ethnic|veteran|disabilit\w*|criminal|convicted|conviction|age|date of birth|birth|ssn|social security)\b/i
+
+/** How the AI may answer this field: write it, choose an option, or not at all (sensitive, or not a question). */
+export function askable(c: Collected): 'write' | 'choose' | null {
+  const label = labelOf(c).trim()
+  if (!label || SENSITIVE_Q.test(label)) return null
+  if (isQuestion(c)) return 'write'
+  return CHOICE_KINDS.has(c.desc.kind) && label.split(/\s+/).length >= 2 ? 'choose' : null
+}
+
+/** The field has an answer (a select showing "Select…" doesn't). */
+const answered = (c: Collected) => {
+  const v = readValue(c)
+  return Boolean(v) && !PLACEHOLDER.test(v)
+}
 
 async function apply(c: Collected, item: PlanItem, ctx: FillContext): Promise<{ status: FieldStatus; reason?: string }> {
   const el = c.el as HTMLElement
@@ -157,7 +181,8 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
     }
   }
 
-  const toDraft: { c: Collected; label: string; at: number }[] = []
+  const toAsk: Ask[] = []
+  const count = (kind: Ask['kind']) => toAsk.filter((a) => a.kind === kind).length
   for (const item of plan) {
     const c = byZid.get(item.zid)!
     if (opts.stopped?.()) {
@@ -173,43 +198,90 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
       continue
     }
 
-    const label = c.desc.label || c.desc.ariaLabel || c.desc.placeholder
-    const canDraft =
-      ctx.autoDraft && ctx.aiReady && toDraft.length < MAX_DRAFTS_PER_PAGE && isQuestion(c) && !SENSITIVE_Q.test(label) && !readValue(c) && !drafting.has(c.desc.zid)
+    const kind = item.action === 'unresolved' && !answered(c) ? askable(c) : null
+    const room = kind === 'write' ? count('write') < MAX_DRAFTS_PER_PAGE : count('choose') < MAX_CHOICES_PER_PAGE
     tracked.set(c.desc.zid, { c, key: item.key, source: 'none', filled: readValue(c) })
-    if (item.action === 'unresolved' && canDraft) {
-      toDraft.push({ c, label, at: reports.length })
-      reports.push(report(c, 'skipped', 'none', { reason: 'Writing a draft…' }))
+    if (kind && room && ctx.autoDraft && ctx.aiReady && !drafting.has(c.desc.zid)) {
+      toAsk.push({ c, kind, at: reports.length })
+      reports.push(report(c, 'skipped', 'none', { reason: kind === 'write' ? 'Writing a draft…' : 'Choosing an answer…' }))
       continue
     }
-    reports.push(report(c, 'skipped', item.source, { key: item.key, reason: item.reason }))
+    reports.push(report(c, 'skipped', item.source, { key: item.key, reason: item.reason, askAi: Boolean(kind) }))
   }
 
   lastReports = refreshMissing(reports, doc)
-  if (!toDraft.length) return lastReports
-  const drafts = draftAll(toDraft, reports, doc, opts.onDrafts, opts.stopped)
+  if (!toAsk.length) return lastReports
+  const answers = askAll(toAsk, reports, doc, opts.onDrafts, opts.stopped)
   if (opts.onDrafts) return lastReports
-  await drafts
+  await answers
   return lastReports
 }
 
-/** Draft each open question in turn, replacing its "Writing a draft…" report. */
-async function draftAll(items: { c: Collected; label: string; at: number }[], reports: FieldReport[], doc: Document, onEach?: (reports: FieldReport[]) => void, stopped?: () => boolean) {
+interface Ask {
+  c: Collected
+  kind: 'write' | 'choose'
+  /** Its place in the reports. */
+  at: number
+}
+
+/** Answer one question with AI: pick an option, or write a draft. Never overwrites an answer you gave meanwhile. */
+async function askOne(c: Collected, kind: Ask['kind']): Promise<FieldReport> {
+  const label = labelOf(c)
+  if (kind === 'choose') {
+    const all = c.desc.kind === 'combobox' ? await comboboxOptions(c.el as HTMLElement) : c.desc.options
+    // Keep each option's place on the page, without the "Select…" ones.
+    const options = all.map((text, i) => ({ text, i })).filter((o) => !PLACEHOLDER.test(o.text))
+    if (options.length < 2) return report(c, 'skipped', 'none', { reason: 'No options to choose from' })
+    const ai = await within(send<{ index: number; model: string } | { error: string }>({ type: 'ai:choose', question: label, options: options.map((o) => o.text) }), AI_CHOOSE_MS).catch(() => null)
+    if (!ai) return report(c, 'skipped', 'none', { reason: 'No answer this time', askAi: true })
+    if (isError(ai)) return report(c, 'skipped', 'none', { reason: ai.error, askAi: true })
+    if (ai.index < 0) return report(c, 'skipped', 'none', { reason: "Your profile doesn't say. Answer this one yourself." })
+    if (answered(c)) return report(c, 'skipped', 'none', { reason: 'You answered it' })
+    const pick = options[ai.index]
+    const el = c.el as HTMLElement
+    if (c.desc.kind === 'select') setSelect(el as HTMLSelectElement, pick.i)
+    else if (c.desc.kind === 'radio' && c.members) setRadio(c.members, pick.i)
+    else if (c.desc.kind === 'checkbox-group' && c.members) setCheckboxGroup(c.members, pick.i)
+    else if (!(await setCombobox(el, pick.text))) return report(c, 'skipped', 'none', { reason: `Couldn't pick "${pick.text}"`, askAi: true })
+    tracked.set(c.desc.zid, { c, source: 'ai-draft', draft: readValue(c), filled: readValue(c) })
+    return report(c, 'draft', 'ai-draft', { reason: `Picked by ${ai.model}. Check it before you submit.` })
+  }
+
+  const maxWords = (c.el as HTMLTextAreaElement).maxLength > 0 ? Math.max(20, Math.floor((c.el as HTMLTextAreaElement).maxLength / 7)) : c.desc.kind === 'text' ? 40 : 150
+  const ai = await within(send<AiText | { error: string }>({ type: 'ai:answer', question: label, maxWords }), AI_DRAFT_MS).catch(() => null)
+  // You may have typed an answer while it was drafting.
+  if (answered(c)) return report(c, 'skipped', 'none', { reason: 'You answered it' })
+  if (!ai || isError(ai) || !ai.text) return report(c, 'skipped', 'none', { reason: ai && isError(ai) ? ai.error : 'No draft this time', askAi: true })
+  setText(c.el as HTMLElement, ai.text)
+  tracked.set(c.desc.zid, { c, source: 'ai-draft', draft: ai.text })
+  return report(c, 'draft', 'ai-draft', { reason: `Draft by ${ai.model}. Edit before you submit.`, warnings: ai.warnings })
+}
+
+/** "Ask AI" from the panel, for one question the fill left. */
+export async function askField(zid: string, doc: Document = document): Promise<FieldReport | { error: string }> {
+  const c = tracked.get(zid)?.c ?? collectFields(doc).find((x) => x.desc.zid === zid)
+  if (!c) return { error: 'That question is no longer on the page.' }
+  const kind = askable(c)
+  if (!kind) return { error: "Zipply doesn't answer this one for you." }
+  if (drafting.has(zid)) return { error: 'Already working on it.' }
+  drafting.add(zid)
+  try {
+    const r = await askOne(c, kind)
+    const at = lastReports.findIndex((x) => x.zid === zid)
+    lastReports = refreshMissing(at < 0 ? [...lastReports, r] : lastReports.map((x, i) => (i === at ? r : x)), doc)
+    return lastReports.find((x) => x.zid === zid) ?? r
+  } finally {
+    drafting.delete(zid)
+  }
+}
+
+/** Answer each question in turn (quick picks first), replacing its "Writing a draft…" report. */
+async function askAll(items: Ask[], reports: FieldReport[], doc: Document, onEach?: (reports: FieldReport[]) => void, stopped?: () => boolean) {
   items.forEach(({ c }) => drafting.add(c.desc.zid))
-  for (const { c, label, at } of items) {
+  const ordered = [...items].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'choose' ? -1 : 1))
+  for (const { c, kind, at } of ordered) {
     try {
-      if (stopped?.()) {
-        reports[at] = report(c, 'skipped', 'none', { reason: 'Paused' })
-        continue
-      }
-      const maxWords = (c.el as HTMLTextAreaElement).maxLength > 0 ? Math.max(20, Math.floor((c.el as HTMLTextAreaElement).maxLength / 7)) : c.desc.kind === 'text' ? 40 : 150
-      const ai = await within(send<AiText | { error: string }>({ type: 'ai:answer', question: label, maxWords }), AI_DRAFT_MS).catch(() => null)
-      // You may have typed an answer while it was drafting.
-      if (ai && !isError(ai) && ai.text && !readValue(c)) {
-        setText(c.el as HTMLElement, ai.text)
-        tracked.set(c.desc.zid, { c, source: 'ai-draft', draft: ai.text })
-        reports[at] = report(c, 'draft', 'ai-draft', { reason: `Draft by ${ai.model}. Edit before you submit.`, warnings: ai.warnings })
-      } else reports[at] = report(c, 'skipped', 'none', { reason: ai && isError(ai) ? ai.error : readValue(c) ? 'You answered it' : 'No draft this time' })
+      reports[at] = stopped?.() ? report(c, 'skipped', 'none', { reason: 'Paused', askAi: true }) : await askOne(c, kind)
     } finally {
       drafting.delete(c.desc.zid)
     }

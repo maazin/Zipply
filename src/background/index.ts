@@ -10,7 +10,7 @@ import { clearOldLimitMarks } from '@/lib/usage'
 import { db } from '@/lib/db'
 import { session } from '@/lib/store'
 import { aiReady } from './ai/router'
-import { coverLetter, draftAnswer, mapFields, tailoringTips } from './ai/tasks'
+import { chooseOption, coverLetter, draftAnswer, mapFields, tailoringTips } from './ai/tasks'
 import { getToken, NotConnectedError, SCOPES, signOut, userEmail } from './google'
 import { ensureSheet, NoSheetError, refreshApplied } from './sheets'
 import { flushQueue, queueSize } from './queue'
@@ -330,6 +330,17 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
     case 'ai:answer': {
       const job = tabId != null ? await getJob(tabId) : null
       return (await draftAnswer(msg.question, job?.posting ?? null, await getProfile(), msg.maxWords)) ?? { error: 'No AI model available' }
+    }
+    case 'ai:choose': {
+      const job = tabId != null ? await getJob(tabId) : null
+      // Where you found the job answers "How did you hear about us?".
+      let foundOn = ''
+      try {
+        foundOn = job?.posting.url ? new URL(job.posting.url).hostname.replace(/^www\./, '') : ''
+      } catch {
+        foundOn = ''
+      }
+      return (await chooseOption(msg.question, msg.options, job?.posting ?? null, await getProfile(), foundOn)) ?? { error: 'No AI model available' }
     }
     case 'submit:confirmed': {
       if (tabId == null) return null

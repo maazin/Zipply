@@ -77,6 +77,8 @@ export type ContentToBg =
   | { type: 'answer:used'; id: string }
   | { type: 'ai:map'; fields: MapField[] }
   | { type: 'ai:answer'; question: string; maxWords: number }
+  /** A multiple-choice question: which option you'd pick (-1 when unsure). */
+  | { type: 'ai:choose'; question: string; options: string[] }
   | { type: 'submit:confirmed'; ats: AtsName; url: string; posting: Posting | null }
   | { type: 'fill:done'; reports: FieldReport[]; auto: boolean }
   | { type: 'score:posting'; posting: Posting }
@@ -125,6 +127,8 @@ export type PageToContent =
   | { type: 'focus'; zid: string }
   | { type: 'insert'; text: string; target: 'cover-letter' }
   | { type: 'stop' }
+  /** "Ask AI" on one question in the panel. */
+  | { type: 'ask'; zid: string }
   | { type: 'capture' }
 
 export type Msg = ContentToBg | PageToBg

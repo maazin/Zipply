@@ -358,6 +358,27 @@ test('The panel shows the keywords you match, and Pause stops filling the next s
   }
 })
 
+test('"Ask AI" sits by questions the fill left, and asks the AI for that one', async () => {
+  const page = await context.newPage()
+  const panel = await context.newPage()
+  try {
+    await page.goto('https://careers.initech.com/jobs/42')
+    const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://careers.initech.com/*' }))[0].id!)
+    await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
+    await panel.getByRole('button', { name: 'Fill this page' }).click()
+    const ask = panel.getByRole('listitem').filter({ hasText: 'Tell us about a project' }).getByRole('button', { name: 'Ask AI' })
+    await expect(ask).toBeVisible({ timeout: 15_000 })
+    // The salary question is yours to answer: no button.
+    await expect(panel.getByRole('listitem').filter({ hasText: 'Desired salary' }).getByRole('button', { name: 'Ask AI' })).toHaveCount(0)
+    // No Gemini key in this test profile, so the AI says why it can't.
+    await ask.click()
+    await expect(panel.getByRole('listitem').filter({ hasText: 'Tell us about a project' })).toContainText(/AI|model|key/i, { timeout: 15_000 })
+  } finally {
+    await panel.close()
+    await page.close()
+  }
+})
+
 test('Shows a match score on a LinkedIn job and its card', async () => {
   const page = await context.newPage()
   await page.goto('https://www.linkedin.com/jobs/search/?currentJobId=111')

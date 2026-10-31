@@ -3,6 +3,7 @@ import type { AiText } from '@/shared/messages'
 import { PROFILE_KEYS } from '@/shared/profileKeys'
 import {
   answerPrompt,
+  choicePrompt,
   coverLetterPlanPrompt,
   coverLetterPrompt,
   frameLetter,
@@ -59,6 +60,15 @@ export async function draftAnswer(question: string, posting: Posting | null, pro
   if (!r) return null
   const text = await polish(r.text, maxWords)
   return { text, warnings: await ground(text, profile), model: r.model }
+}
+
+/** Which option of a multiple-choice question you'd pick, or -1 when your profile can't tell. */
+export async function chooseOption(question: string, options: string[], posting: Posting | null, profile: Profile, foundOn = ''): Promise<{ index: number; model: string } | null> {
+  const { system, prompt, schema } = choicePrompt(question, options, posting, profile, foundOn)
+  const r = await runAiJson<{ index: number }>('map', system, prompt, schema)
+  if (!r) return null
+  const i = Number(r.data.index)
+  return { index: Number.isInteger(i) && i >= 0 && i < options.length ? i : -1, model: r.model }
 }
 
 const wordCount = (t: string) => t.split(/\s+/).filter(Boolean).length

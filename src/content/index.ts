@@ -10,7 +10,7 @@ import { canonicalUrl } from '@/core/score/applied'
 import { pickAdapter, type Adapter } from './adapters'
 import { collectFields, findByZid } from './dom/collect'
 import { flash, setText } from './dom/setValue'
-import { fillPage, lastReports, refreshMissing, tracked, watchAnswers } from './fill'
+import { askField, fillPage, lastReports, refreshMissing, tracked, watchAnswers } from './fill'
 import { genericPosting, mergePosting, postingFromJsonLd } from './posting'
 import { detectApplication } from './detect'
 import { sanitizeForm } from './capture'
@@ -243,6 +243,11 @@ function main() {
         }
         case 'capture':
           return { html: sanitizeForm(document, location.href), fields: fieldCount() }
+        case 'ask': {
+          const r = await askField(msg.zid)
+          if (!isError(r)) send({ type: 'report:update', reports: [r] }).catch(() => undefined)
+          return r
+        }
         case 'stop':
           paused = true
           setAuto(null)

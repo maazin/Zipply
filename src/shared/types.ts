@@ -211,6 +211,8 @@ export interface FieldReport {
   reason?: string
   /** Grounding warnings for AI drafts. */
   warnings?: string[]
+  /** A question the AI could answer: the panel offers "Ask AI". */
+  askAi?: boolean
   frameId?: number
 }
 

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { FillContext } from '@/shared/messages'
 import type { FieldReport } from '@/shared/types'
 import { collectFields } from '@/content/dom/collect'
-import { fillPage } from '@/content/fill'
+import { askField, fillPage } from '@/content/fill'
 import { pickAdapter } from '@/content/adapters'
 import { workday, postedOn } from '@/content/adapters/workday'
 import { mergePosting, postingFromJsonLd, genericPosting } from '@/content/posting'
@@ -286,6 +286,70 @@ describe('AI drafts', () => {
       send.mockImplementation(async (m: unknown) => (sent.push(m), {}))
     }
   })
+})
+
+describe('AI answers for questions that aren\'t standard', () => {
+  const FORM = `<form>
+    <label>Given name <input name="given"></label>
+    <label>How did you hear about us? <select name="heard"><option value="">Select...</option><option>Company website</option><option>LinkedIn</option><option>Referral</option></select></label>
+    <fieldset><legend>Are you comfortable working on-site three days a week?</legend>
+      <label><input type="radio" name="onsite" value="y"> Yes</label><label><input type="radio" name="onsite" value="n"> No</label></fieldset>
+    <label>Have you used SAP in a past role? <select name="sap"><option value="">Select...</option><option>Yes</option><option>No</option></select></label>
+    <label>Will you require visa sponsorship? <select name="visa"><option value="">Select...</option><option>Yes</option><option>No</option></select></label>
+    <label>Why are you interested in Globex <input name="why"></label>
+  </form>`
+  const chrome = () => (globalThis as unknown as { chrome: { runtime: { sendMessage: ReturnType<typeof vi.fn> } } }).chrome.runtime.sendMessage
+  // The AI picks LinkedIn, Yes, and isn't sure about SAP.
+  const fake = async (m: { type: string; question?: string; options?: string[] }) => {
+    sent.push(m)
+    if (m.type === 'ai:map') return { mappings: [] }
+    if (m.type === 'ai:answer') return { text: 'Your analytics team ships the tools I use every day.', warnings: [], model: 'test' }
+    if (m.type === 'ai:choose') return { index: /hear/.test(m.question!) ? m.options!.indexOf('LinkedIn') : /SAP/.test(m.question!) ? -1 : 0, model: 'test' }
+    return {}
+  }
+
+  it('picks options for choice questions and drafts short written ones, but leaves sensitive ones to you', async () => {
+    document.body.innerHTML = FORM
+    chrome().mockImplementation(fake)
+    try {
+      const reports = await fillPage(pickAdapter(new URL('https://careers.globex.com/apply'), document), { ...ctx(), autoDraft: true, aiReady: true }, document)
+      expect((document.querySelector('select[name="heard"]') as HTMLSelectElement).value).toBe('LinkedIn')
+      expect((document.querySelector('input[name="onsite"][value="y"]') as HTMLInputElement).checked).toBe(true)
+      expect(val('input[name="why"]')).toMatch(/analytics team/)
+      expect(reports.find((r) => /hear about/.test(r.label))).toMatchObject({ status: 'draft', source: 'ai-draft' })
+      // Not sure: left for you, with no guess.
+      expect((document.querySelector('select[name="sap"]') as HTMLSelectElement).value).toBe('')
+      expect(reports.find((r) => /SAP/.test(r.label))?.reason).toMatch(/profile doesn't say/)
+      // Sponsorship is yours to answer: the AI is never asked.
+      const asked = sent.filter((m) => (m as { type: string }).type === 'ai:choose').map((m) => (m as { question: string }).question)
+      expect(asked.some((q) => /visa/i.test(q))).toBe(false)
+      // (It's filled from your saved answer instead.)
+      expect(reports.find((r) => /visa/i.test(r.label))?.source).not.toBe('ai-draft')
+      // Placeholders aren't offered as answers.
+      const heard = sent.find((m) => (m as { type: string; question?: string }).type === 'ai:choose' && /hear/.test((m as { question: string }).question)) as { options: string[] }
+      expect(heard.options).toEqual(['Company website', 'LinkedIn', 'Referral'])
+    } finally {
+      chrome().mockImplementation(async (m: unknown) => (sent.push(m), {}))
+    }
+  }, 20000)
+
+  it('with auto-drafting off, offers "Ask AI", which answers that one question', async () => {
+    document.body.innerHTML = FORM
+    chrome().mockImplementation(fake)
+    try {
+      const reports = await fillPage(pickAdapter(new URL('https://careers.globex.com/apply'), document), { ...ctx(), autoDraft: false, aiReady: true }, document)
+      const heard = reports.find((r) => /hear about/.test(r.label))!
+      expect(heard).toMatchObject({ status: 'skipped', askAi: true })
+      expect(reports.find((r) => /visa/i.test(r.label))?.askAi).toBeFalsy()
+      expect(reports.find((r) => /Given name/.test(r.label))?.askAi).toBeFalsy()
+      const r = await askField(heard.zid)
+      expect(r).toMatchObject({ status: 'draft' })
+      expect((document.querySelector('select[name="heard"]') as HTMLSelectElement).value).toBe('LinkedIn')
+      expect(await askField(reports.find((r) => /visa/i.test(r.label))!.zid)).toMatchObject({ error: expect.any(String) })
+    } finally {
+      chrome().mockImplementation(async (m: unknown) => (sent.push(m), {}))
+    }
+  }, 20000)
 })
 
 describe('searchable dropdowns', () => {

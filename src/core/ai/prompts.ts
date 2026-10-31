@@ -117,6 +117,23 @@ export function answerPrompt(question: string, posting: Posting | null, p: Profi
   }
 }
 
+/**
+ * A multiple-choice question on the application: which option I'd honestly
+ * pick, from my profile and the job. -1 when the profile can't tell.
+ */
+export function choicePrompt(question: string, options: string[], posting: Posting | null, p: Profile, foundOn = ''): { system: string; prompt: string; schema: object } {
+  const list = options.map((o, i) => `${i}: ${o}`).join('\n')
+  return {
+    system: `You answer a multiple-choice question on my job application by picking the option I would honestly choose. ${UNTRUSTED_NOTE} Use only what <profile> and the posting say about me and the job. Pick an option only when the profile supports it or the question is a plain preference any applicant to this job would answer the same way (for example, willingness to work the posting's stated location or schedule). Never pick an option that claims a skill, license, clearance, degree or experience the profile doesn't show. When unsure, answer -1. Never pick placeholder options like "Select...".`,
+    prompt: `${postingBlock(posting, 6000)}\n\n${quoteData('profile', redactedProfile(p), 5000)}${foundOn ? `\n\nI found this job on ${foundOn}.` : ''}\n\n${quoteData('question', question, 600)}\n\nOptions:\n${quoteData('field', list, 2000)}\n\nReturn the number of the option I'd pick, or -1.`,
+    schema: {
+      type: 'object',
+      properties: { index: { type: 'integer' } },
+      required: ['index'],
+    },
+  }
+}
+
 /** What the letter will argue, worked out before any sentence is written. */
 export interface LetterPlan {
   /** The concrete thing in the posting that makes this job make sense for me. */

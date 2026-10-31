@@ -560,11 +560,11 @@ function FieldList({ reports, tabId }: { reports: FieldReport[]; tabId: number }
       </div>
       <ul className="max-h-[50vh] overflow-y-auto py-1">
         {sorted.map((r, i) => (
-          <li key={`${r.frameId}:${r.zid}:${i}`}>
+          <li key={`${r.frameId}:${r.zid}:${i}`} className="flex items-start">
             <button
               disabled={!r.zid}
               onClick={() => r.zid && sendToFrame(tabId, r.frameId ?? 0, { type: 'focus', zid: r.zid }).catch(() => undefined)}
-              className="flex w-full items-start gap-2.5 px-4 py-1.5 text-left hover:bg-sunken disabled:hover:bg-transparent"
+              className="flex min-w-0 flex-1 items-start gap-2.5 px-4 py-1.5 text-left hover:bg-sunken disabled:hover:bg-transparent"
             >
               <span className="mt-1.5"><Dot tone={r.missing ? 'bad' : STATUS_DOT[r.status]} /></span>
               <span className="min-w-0 flex-1">
@@ -580,10 +580,39 @@ function FieldList({ reports, tabId }: { reports: FieldReport[]; tabId: number }
                 )}
               </span>
             </button>
+            {r.askAi && r.status === 'skipped' && <AskAi report={r} tabId={tabId} />}
           </li>
         ))}
       </ul>
     </Card>
+  )
+}
+
+/** Answer one question the fill left: an AI pick for a choice, a draft for a written one. */
+function AskAi({ report, tabId }: { report: FieldReport; tabId: number }) {
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+  return (
+    <div className="flex shrink-0 flex-col items-end px-3 py-1.5">
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={busy}
+        title="Have the AI answer this from your profile and the job. Check it before you submit."
+        onClick={async () => {
+          setBusy(true)
+          setNote('')
+          // The answer itself arrives as a report update, like drafts do.
+          const r = await sendToFrame<FieldReport | { error: string }>(tabId, report.frameId ?? 0, { type: 'ask', zid: report.zid })
+            .catch((e) => ({ error: e instanceof Error ? e.message : String(e) }))
+            .finally(() => setBusy(false))
+          if (isError(r)) setNote(r.error)
+        }}
+      >
+        {busy ? <><Spinner /> Asking…</> : 'Ask AI'}
+      </Button>
+      {note && <span className="max-w-40 text-right text-xs text-bad">{note}</span>}
+    </div>
   )
 }
 

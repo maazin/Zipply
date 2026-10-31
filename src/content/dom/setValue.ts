@@ -157,6 +157,21 @@ export async function setCombobox(el: HTMLElement, value: string, opts: { boolea
   return choice.label
 }
 
+/** A custom dropdown's options: opened, read, and closed again without choosing. */
+export async function comboboxOptions(el: HTMLElement): Promise<string[]> {
+  const doc = el.ownerDocument
+  const input = el instanceof HTMLInputElement ? el : el.querySelector<HTMLInputElement>('input')
+  const target = input ?? el
+  realClick(target)
+  const options = await waitFor(() => {
+    const o = visibleOptions(doc, target)
+    return o.length ? o : null
+  }, 1500)
+  fire(target, 'keydown', { key: 'Escape' } as KeyboardEventInit)
+  if (input) fire(input, 'blur', { bubbles: false })
+  return (options ?? []).map((o) => (o.textContent ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean)
+}
+
 /** Attach a file to an <input type=file>, the way a drop would. */
 export function setFile(el: HTMLInputElement, file: { name: string; mime: string; data: string }): boolean {
   try {
