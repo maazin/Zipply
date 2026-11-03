@@ -156,13 +156,44 @@ export function textAt(doc: Document, selectors: string[]): string {
   return ''
 }
 
+// Title pieces that name the page, not the company ("… - Smappee - Application").
+const NOT_A_COMPANY = /^(job )?(application( form)?|apply( now)?|careers?|jobs?|job (details|description|posting|board|openings?)|open (positions|roles)|opportunities|home|join us|vacanc(y|ies))$/i
+
+// Hosted job sites that put the company in the address: apply.workable.com/smappee/…
+const SLUG_HOSTS: [RegExp, number][] = [
+  [/^apply\.workable\.com$/, 0],
+  [/^jobs\.jobvite\.com$/, 0],
+  [/^ats\.rippling\.com$/, 0],
+  [/^(www\.)?comeet\.com$/, 1],
+  [/^jobs\.smartrecruiters\.com$/, 0],
+]
+
+/** The company from a hosted job site's address, as a name ("delivery-hero" → "Delivery Hero"). */
+export function companyFromUrl(url: string): string {
+  try {
+    const u = new URL(url)
+    const at = SLUG_HOSTS.find(([h]) => h.test(u.hostname))?.[1]
+    if (at == null) return ''
+    const slug = u.pathname.split('/').filter(Boolean)[at] ?? ''
+    return /^[a-z0-9][a-z0-9-]{1,60}$/i.test(slug) && !/^\d+$/.test(slug)
+      ? slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+      : ''
+  } catch {
+    return ''
+  }
+}
+
 /** Generic fallback: title from h1 / og:title / document.title, description from the main text block. */
-export function genericPosting(doc: Document = document): Partial<Posting> {
+export function genericPosting(doc: Document = document, url = doc.location?.href ?? ''): Partial<Posting> {
   const og = (p: string) => doc.querySelector<HTMLMetaElement>(`meta[property="${p}"], meta[name="${p}"]`)?.content ?? ''
+  const pieces = (s: string) => s.split(/\s[-|–—]\s/).map((x) => x.trim()).filter(Boolean)
   const h1 = doc.querySelector('h1')?.textContent?.trim() ?? ''
-  const title = h1 || og('og:title') || doc.title.split(/\s[-|–]\s/)[0]
-  const site = og('og:site_name') || doc.title.split(/\s[-|–]\s/).slice(-1)[0] || ''
-  return { title: title.slice(0, 140), company: site !== title ? companyFromSiteName(site) : '', description: descriptionFrom(doc) }
+  const title = h1 || pieces(og('og:title'))[0] || pieces(doc.title)[0] || ''
+  // The site's name, else the last title piece that isn't the job or a word like "Application".
+  const named = [og('og:site_name'), ...pieces(og('og:title')).slice(1).reverse(), ...pieces(doc.title).slice(1).reverse()]
+    .map((p) => companyFromSiteName(p))
+    .find((p) => p && p !== title && !NOT_A_COMPANY.test(p))
+  return { title: title.slice(0, 140), company: named || companyFromUrl(url), description: descriptionFrom(doc) }
 }
 
 /** Fetch a same-origin page (e.g. the posting behind an /apply URL) and parse it. */

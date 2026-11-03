@@ -7,7 +7,7 @@ import { collectFields } from '@/content/dom/collect'
 import { askField, fillPage } from '@/content/fill'
 import { pickAdapter } from '@/content/adapters'
 import { workday, postedOn } from '@/content/adapters/workday'
-import { mergePosting, postingFromJsonLd, genericPosting } from '@/content/posting'
+import { companyFromUrl, mergePosting, postingFromJsonLd, genericPosting } from '@/content/posting'
 import { oracleJob } from '@/content/adapters/oracle'
 import { companyFromSiteName } from '@/shared/text'
 import { profile } from './helpers'
@@ -168,6 +168,19 @@ describe('Fallback on a company-built form', () => {
     expect(d).toContain('Turn data into decisions')
     for (const noise of ['cookies', 'Kubernetes', 'Salesforce', 'Figma', 'Backend Engineer', 'AWS', 'First name', 'LinkedIn', 'Privacy', 'Tableau', 'Apply now'])
       expect(d).not.toContain(noise)
+  })
+
+  it('takes the company from the title, not words like "Application" (Workable)', () => {
+    document.title = 'Java Software Engineer - Smappee - Application'
+    document.head.innerHTML = '<meta property="og:title" content="Java Software Engineer - Smappee">'
+    document.body.innerHTML = '<h1>Java Software Engineer</h1><h2>Personal information</h2><form><label>First name <input></label></form>'
+    expect(genericPosting(document, 'https://apply.workable.com/smappee/j/A64D633385/apply/')).toMatchObject({ title: 'Java Software Engineer', company: 'Smappee' })
+    // Nothing but the address to go on.
+    document.title = 'Application'
+    document.head.innerHTML = ''
+    expect(genericPosting(document, 'https://apply.workable.com/delivery-hero/j/123/apply/').company).toBe('Delivery Hero')
+    expect(companyFromUrl('https://careers.initech.com/jobs/42')).toBe('')
+    expect(companyFromUrl('https://jobs.jobvite.com/camsyscareers/job/oBv0Afwq')).toBe('Camsyscareers')
   })
 
   it('stops filling when you pause, leaving the rest as it was', async () => {
