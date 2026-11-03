@@ -64,6 +64,8 @@ function main() {
   let adapter: Adapter = pickAdapter(new URL(location.href), document)
   let posting: { url: string; value: Posting } | null = null
   let confirmedFor = ''
+  // You filled an application in this tab (on this page or an earlier one) that isn't logged yet.
+  let filledHere = false
   let lastStatus = ''
   let filling = false
   // You pressed Pause: stop between fields, and don't fill the next steps.
@@ -116,8 +118,7 @@ function main() {
     adapter = pickAdapter(new URL(location.href), document)
     // Confirmation pages have no form, so they count when this is a known ATS
     // or you filled an application in this tab.
-    const filledHere = Boolean(autoFill())
-    const confirmation = (adapter.name !== 'Other' || filledHere) && adapter.isConfirmation(document, new URL(location.href))
+    const confirmation = (adapter.name !== 'Other' || filledHere || Boolean(autoFill())) && adapter.isConfirmation(document, new URL(location.href))
     if (!confirmation && !checkActive()) {
       noteJobPage()
       if (reported) {
@@ -138,6 +139,7 @@ function main() {
     }
     if (confirmation && confirmedFor !== location.href) {
       confirmedFor = location.href
+      filledHere = false
       setAuto(null)
       send({ type: 'submit:confirmed', ats: adapter.name, url: location.href, posting: await getPosting().catch(() => null) }).catch(() => undefined)
     }
@@ -160,7 +162,10 @@ function main() {
         stopped: () => paused,
       })
       reports.forEach((r) => r.zid && done.add(r.zid))
-      send({ type: 'fill:done', reports, auto }).catch(() => undefined)
+      filledHere = true
+      // With the posting, so the job is known even if nothing read it before.
+      const p = window === window.top || reports.length ? await getPosting().catch(() => null) : null
+      send({ type: 'fill:done', reports, auto, ats: adapter.name, posting: p }).catch(() => undefined)
       return reports
     } finally {
       filling = false
@@ -326,9 +331,10 @@ function main() {
 
   // Check right away: a confirmation page may be closed within a second.
   // First learn whether you pressed Fill earlier in this tab (maybe on another site).
-  void send<{ resumeId: string | null } | null>({ type: 'auto:get' })
+  void send<{ auto: { resumeId: string | null } | null; filled: boolean } | null>({ type: 'auto:get' })
     .then((a) => {
-      if (a && 'resumeId' in a) auto = a
+      if (a?.auto) auto = a.auto
+      if (a?.filled) filledHere = true
     })
     .catch(() => undefined)
     .finally(() => void report())

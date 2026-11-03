@@ -116,7 +116,9 @@ export function App() {
     // On the application form, keep the job you came from (its description,
     // score and resume ranking) rather than the bare form page.
     const job = state.job
-    const current = job && continuesJob(job, scan.posting) ? mergePostingInto(job.posting, scan.posting) : scan.posting
+    // The "thank you" page after a submit is still that job.
+    const confirmed = scan.frames.some((f) => f.scan?.confirmation)
+    const current = job && (confirmed || continuesJob(job, scan.posting)) ? mergePostingInto(job.posting, scan.posting) : scan.posting
     setPosting(current)
     if (job?.loggedAppId && current && job.posting.url === current.url) setLogState({ ok: true, appId: job.loggedAppId })
     setPhase('ready')

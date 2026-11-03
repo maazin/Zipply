@@ -8,13 +8,19 @@
 import type { AppliedCheck, AppliedEntry, Posting } from '@/shared/types'
 import { bigramSimilarity, daysBetween, normalizeCompany } from '@/shared/text'
 
+/** A path part that names one job: a number or an ID. */
+const JOB_ID = /\d{3,}|[0-9a-f]{8}-[0-9a-f]{4}/i
+
 /** Strip tracking params and fragments so the same posting has one URL. */
 export function canonicalUrl(url: string): string {
   try {
     const u = new URL(url)
     u.hash = ''
     for (const p of [...u.searchParams.keys()]) if (/^(utm_|gh_src|source|ref|lever-source|src)/i.test(p)) u.searchParams.delete(p)
-    u.pathname = u.pathname.replace(/\/(apply|application|thanks|confirmation)(\/.*)?$/i, '').replace(/\/$/, '')
+    // ".../123/apply" is job 123; but in "/apply/123" the job is after it, so that stays.
+    const tail = u.pathname.match(/\/(apply|application|thanks|confirmation)(\/.*)?$/i)
+    if (tail && !(JOB_ID.test(tail[2] ?? '') && !JOB_ID.test(u.pathname.slice(0, tail.index)))) u.pathname = u.pathname.slice(0, tail.index)
+    u.pathname = u.pathname.replace(/\/$/, '')
     return u.toString()
   } catch {
     return url

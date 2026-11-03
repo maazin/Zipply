@@ -42,6 +42,8 @@ export interface JobSoFar {
   filledAt?: number
   /** The page where it was last seen (the form, after "Apply"). */
   lastUrl?: string
+  /** It's in your sheet: you submitted it. */
+  loggedAppId?: string
 }
 
 /**
@@ -49,12 +51,15 @@ export interface JobSoFar {
  * the same posting, the same job ID or title, or a page without a description
  * of its own (an application form). No for a different posting with its own
  * description, a different job on the same site, a new site after you
- * already filled a form, or when the job you were on is hours old.
+ * already filled a form, any other posting once this one is in your sheet, or
+ * when the job you were on is hours old.
  */
 export function continuesJob(prev: JobSoFar, next: Posting | null, now = Date.now()): boolean {
   if (!next) return true
   const a = prev.posting
   if (samePosting(a, next)) return true
+  // Submitted and logged: whatever you open next is another application.
+  if (prev.loggedAppId) return false
   if (prev.at && now - prev.at > JOB_TTL) return false
   const sameSite = hostOf(prev.lastUrl ?? a.url) === hostOf(next.url)
   // Two different job IDs on one site are two jobs.

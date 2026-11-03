@@ -10,7 +10,7 @@ vi.mock('@/background/ai/gemini', () => {
 })
 
 const { SENSITIVE_Q } = await import('@/content/fill')
-const { markerConfirmation, noFormLeft } = await import('@/content/adapters/types')
+const { genericConfirmation, markerConfirmation, noFormLeft } = await import('@/content/adapters/types')
 const { pickAdapter } = await import('@/content/adapters')
 const { collectFields } = await import('@/content/dom/collect')
 const { updateSettings, getSettings, saveProfile, getProfile } = await import('@/lib/repo')
@@ -52,6 +52,20 @@ describe('confirmation markers need the form to be gone', () => {
     const doc = html('<div class="_success_1">Thanks for applying!</div>')
     expect(noFormLeft(doc)).toBe(true)
     expect(pickAdapter(new URL('https://jobs.ashbyhq.com/acme/1/application'), doc).isConfirmation(doc, new URL('https://jobs.ashbyhq.com/acme/1/application'))).toBe(true)
+  })
+})
+
+describe('thank-you pages in other words', () => {
+  it('reads the usual ways sites say it', () => {
+    for (const t of ['Your application was sent to Globex', 'Thanks for your application!', 'We have received your application', 'Application completed', 'You’ve successfully applied', 'Submission received'])
+      expect(genericConfirmation(html(`<main><h2>${t}</h2><p>We'll be in touch.</p></main>`)), t).toBe(true)
+  })
+  it('not while the form is still there, or when the message is hidden', () => {
+    const fields = '<input name=a><input name=b><input type=email name=c>'
+    expect(genericConfirmation(html(`<h2>Thanks for applying!</h2><form>${fields}</form>`))).toBe(false)
+    expect(genericConfirmation(html(`<div hidden><h2>Thanks for applying!</h2></div><p>Welcome</p>`))).toBe(false)
+    // A form left in the page but hidden doesn't count as still there.
+    expect(genericConfirmation(html(`<h2>Thanks for applying!</h2><form hidden>${fields}</form>`))).toBe(true)
   })
 })
 

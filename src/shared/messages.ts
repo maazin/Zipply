@@ -80,7 +80,7 @@ export type ContentToBg =
   /** A multiple-choice question: which option you'd pick (-1 when unsure). */
   | { type: 'ai:choose'; question: string; options: string[] }
   | { type: 'submit:confirmed'; ats: AtsName; url: string; posting: Posting | null }
-  | { type: 'fill:done'; reports: FieldReport[]; auto: boolean }
+  | { type: 'fill:done'; reports: FieldReport[]; auto: boolean; ats: AtsName; posting: Posting | null }
   | { type: 'score:posting'; posting: Posting }
   /** Field states changed after a fill (you edited something); not a fill. */
   | { type: 'job:seen'; posting: Posting }

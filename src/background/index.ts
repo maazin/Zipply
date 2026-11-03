@@ -272,8 +272,12 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
         return { match: best, verdict: c.verdict, redFlags: c.redFlags, resumeId: best?.resumeId ?? null, resumeTag: best?.tag || best?.name || '' }
       })
     }
-    case 'auto:get':
-      return tabId == null ? null : getAuto(tabId)
+    case 'auto:get': {
+      if (tabId == null) return null
+      // Filled in this tab, even after Pause or once auto-fill ran out: its "thank you" page still counts.
+      const job = await getJob(tabId)
+      return { auto: await getAuto(tabId), filled: Boolean(job?.filledAt && Date.now() - job.filledAt < JOB_TTL && !job.loggedAppId) }
+    }
     case 'auto:set':
       if (tabId != null) await session.set(autoKey(tabId), { resumeId: msg.resumeId, at: Date.now() })
       return null
@@ -316,7 +320,14 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
     case 'fill:done': {
       if (tabId == null) return null
       const job = await getJob(tabId)
-      if (job) await setJob(tabId, { ...job, filledAt: Date.now(), lastUrl: sender.url ?? job.lastUrl })
+      const p = msg.posting
+      const named = Boolean(p && (p.company || p.title))
+      const lastUrl = sender.url ?? job?.lastUrl
+      // A fill after the last job was logged is a new application; so is a
+      // fill with no job yet (the panel never opened, the posting page wasn't read).
+      if (!job || (job.loggedAppId && named && !samePosting(job.posting, p!)))
+        await setJob(tabId, named ? { ...bareContext(msg.ats, p!.url, p), filledAt: Date.now(), lastUrl } : null)
+      else await setJob(tabId, { ...job, posting: mergePostingInto(job.posting, p), filledAt: Date.now(), loggedAppId: undefined, lastUrl })
       return null
     }
     case 'answer:save':

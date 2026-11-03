@@ -33,6 +33,9 @@ test.beforeAll(async () => {
   await context.route('https://www.hooli.com/careers/apply', (route) =>
     route.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'custom.html'), 'utf8') }),
   )
+  await context.route('https://www.hooli.com/careers/design/apply', (route) =>
+    route.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'custom.html'), 'utf8').replace('Junior Data Engineer', 'Product Designer') }),
+  )
   await context.route('https://www.hooli.com/thank-you', (route) =>
     route.fulfill({ contentType: 'text/html', body: '<h1>Thank you for applying!</h1><p>We will be in touch.</p>' }),
   )
@@ -314,6 +317,44 @@ test('Logs a submit that redirects to a different thank-you address', async () =
     }, { timeout: 15_000 })
     .toBe(true)
   await opts.close()
+  await page.close()
+})
+
+test('Logs the next job you apply to in the same tab, even after Pause', async () => {
+  const page = await context.newPage()
+  const hooliTab = () => worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://www.hooli.com/*' }))[0].id!)
+  const ready = () =>
+    expect
+      .poll(async () => worker.evaluate(async (id) => Boolean((await chrome.storage.session.get(`frames:${id}`))[`frames:${id}`]), await hooliTab()), { timeout: 10_000 })
+      .toBe(true)
+  const fill = async () => worker.evaluate(async (id) => chrome.tabs.sendMessage(id, { type: 'fill', resumeId: null }, { frameId: 0 }), await hooliTab())
+  const logged = async (who: string) => {
+    const opts = await context.newPage()
+    await expect
+      .poll(async () => {
+        await opts.goto(`chrome-extension://${extId}/src/options/index.html#connections`)
+        return (await opts.locator('#connections').innerText()).includes(who)
+      }, { timeout: 15_000 })
+      .toBe(true)
+    await opts.close()
+  }
+
+  // One application, submitted and logged.
+  await page.goto('https://www.hooli.com/careers/apply')
+  await ready()
+  await fill()
+  await expect(page.locator('input[name="applicant_given"]')).toHaveValue('Ada')
+  await page.goto('https://www.hooli.com/thank-you')
+  await logged('Initech: Junior Data Engineer')
+
+  // The next one on the same site, in the same tab, paused partway: it's its own row.
+  await page.goto('https://www.hooli.com/careers/design/apply')
+  await ready()
+  await fill()
+  await expect(page.locator('input[name="applicant_given"]')).toHaveValue('Ada')
+  await worker.evaluate(async (id) => chrome.tabs.sendMessage(id, { type: 'stop' }, { frameId: 0 }), await hooliTab())
+  await page.goto('https://www.hooli.com/thank-you')
+  await logged('Initech: Product Designer')
   await page.close()
 })
 
