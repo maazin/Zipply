@@ -2,7 +2,7 @@
 // per-tab state. No server; data stays in this browser and your Google account.
 import type { AppStatus, AtsName, Posting } from '@/shared/types'
 import { continuesJob, JOB_TTL, mergePostingInto, samePosting } from '@/core/jobContext'
-import { canonicalUrl } from '@/core/score/applied'
+import { appliedLine, canonicalUrl, checkApplied } from '@/core/score/applied'
 import type { ContentToBg, FillContext, FrameInfo, JobContext, PageToBg, PageToContent } from '@/shared/messages'
 import { LockedError } from '@/lib/keys'
 import { getAnswerBank, getProfile, getResume, getSettings, listResumes, saveAnswer, markAnswerUsed, updateSettings } from '@/lib/repo'
@@ -260,6 +260,8 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
         chrome.runtime.sendMessage({ type: 'tab:job', tabId }).catch(() => undefined)
       }
       return null
+    case 'applied:lookup':
+      return appliedLine(checkApplied(msg.posting, await db.applied.toArray()))
     case 'job:applied': {
       // Scored the way the panel scores it, from the panel's own pick when it has one.
       const tabJob = tabId != null ? await getJob(tabId) : null

@@ -35,6 +35,15 @@ const CSS = `
   box-shadow: 0 1px 4px rgba(0, 0, 0, .3); opacity: 0; transition: opacity .12s;
 }
 :host(:hover) .close, .close:focus-visible { opacity: 1; }
+.applied {
+  position: absolute; right: 50px; top: 50%; transform: translateY(-50%); width: max-content; max-width: 280px;
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 0; border-radius: 999px; cursor: pointer;
+  background: #18181b; color: #fff; font: 600 12px/1.35 system-ui, -apple-system, sans-serif;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .25); text-align: left;
+}
+.applied::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; }
+.applied.sure::before { background: #ef4444; }
+.applied[hidden] { display: none; }
 .note {
   position: absolute; right: 52px; top: 50%; transform: translateY(-50%); width: max-content; max-width: 240px;
   padding: 7px 10px; border-radius: 8px; background: #18181b; color: #fff;
@@ -44,6 +53,8 @@ const CSS = `
 
 let host: HTMLElement | null = null
 let kind: SideTabKind = 'job'
+/** The line beside the tab when you've applied to this job; it outlives a rebuilt tab. */
+let appliedText: { text: string; sure: boolean } | null = null
 
 async function allowed(): Promise<boolean> {
   try {
@@ -69,9 +80,11 @@ function build(): HTMLElement {
   const root = el.attachShadow({ mode: 'open' })
   root.innerHTML = `<style>${CSS}</style>
 <div class="tab" role="button" tabindex="0" aria-label="Open Zipply" title="Open Zipply (Alt+Shift+F)"><span class="dot"></span>${MARK_SVG}</div>
-<button class="close" aria-label="Hide the Zipply tab on this site" title="Hide on this site">×</button>`
+<button class="close" aria-label="Hide the Zipply tab on this site" title="Hide on this site">×</button>
+<button class="applied" hidden></button>`
   const tab = root.querySelector<HTMLElement>('.tab')!
   const close = root.querySelector<HTMLElement>('.close')!
+  root.querySelector<HTMLElement>('.applied')!.addEventListener('click', () => open())
 
   const place = (top: number) => (el.style.top = `${Math.round(Math.min(Math.max(top, 8), innerHeight - 52))}px`)
   place(innerHeight * 0.38)
@@ -139,6 +152,22 @@ function removeSideTab() {
   host = null
 }
 
+function drawApplied() {
+  const el = host?.shadowRoot?.querySelector<HTMLElement>('.applied')
+  if (!el) return
+  el.hidden = !appliedText
+  el.textContent = appliedText?.text ?? ''
+  el.title = appliedText ? `${appliedText.text}. Open Zipply for this job.` : ''
+  el.classList.toggle('sure', Boolean(appliedText?.sure))
+}
+
+/** Say beside the tab that you've applied to the job on this page, or clear it (null). */
+export function showApplied(line: { text: string; sure: boolean } | null) {
+  if (window !== window.top) return
+  appliedText = line
+  drawApplied()
+}
+
 /** Show the tab (top frame), or ask the top frame to show it (a frame with a form). */
 export async function showSideTab(next: SideTabKind) {
   if (window !== window.top) {
@@ -150,6 +179,7 @@ export async function showSideTab(next: SideTabKind) {
   if (!host) host = build()
   // Some sites replace the whole page; put it back if it was dropped.
   if (!host.isConnected) document.documentElement.append(host)
+  drawApplied()
   host.shadowRoot!.querySelector('.tab')?.classList.toggle('form', kind === 'form')
 }
 

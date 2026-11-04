@@ -6,7 +6,7 @@
  * "Possibly applied" match catches one job posted on two ATS sites.
  */
 import type { AppliedCheck, AppliedEntry, Posting } from '@/shared/types'
-import { bigramSimilarity, daysBetween, normalizeCompany } from '@/shared/text'
+import { bigramSimilarity, normalizeCompany } from '@/shared/text'
 
 /** A path part that names one job: a number or an ID. */
 const JOB_ID = /\d{3,}|[0-9a-f]{8}-[0-9a-f]{4}/i
@@ -50,7 +50,7 @@ export function buildAppliedSet(entries: AppliedEntry[]): Set<string> {
   return s
 }
 
-export function checkApplied(posting: Posting, entries: AppliedEntry[], now = new Date()): AppliedCheck {
+export function checkApplied(posting: Posting, entries: AppliedEntry[]): AppliedCheck {
   const byKey = new Map<string, AppliedEntry>()
   for (const e of entries) {
     if (e.jobId) byKey.set(appliedKey(e.company, e.jobId, ''), e)
@@ -62,16 +62,35 @@ export function checkApplied(posting: Posting, entries: AppliedEntry[], now = ne
     null
   if (exact) return { alreadyApplied: exact, possiblyApplied: null }
 
-  const company = normalizeCompany(posting.company)
+  // The same employer: "Scale AI" and "Scaleai" too.
+  const squash = (s: string) => normalizeCompany(s).replace(/ /g, '')
+  const company = squash(posting.company)
+  const sameCo = company ? entries.filter((e) => squash(e.company) === company && (!posting.jobId || e.jobId !== posting.jobId)) : []
+  const newest = (xs: AppliedEntry[]) => [...xs].sort((a, b) => (b.dateApplied || '').localeCompare(a.dateApplied || ''))[0] ?? null
+  // The same role there (posted again, or on another site), however long ago; else
+  // an application there whose role wasn't saved (found in email): the company is
+  // all there is to go on.
   const possible =
-    (company &&
-      entries.find(
-        (e) =>
-          e.companyNorm === company &&
-          bigramSimilarity(e.title, posting.title) >= 0.85 &&
-          daysBetween(e.dateApplied, now) <= 60 &&
-          (!posting.jobId || e.jobId !== posting.jobId),
-      )) ||
-    null
+    newest(sameCo.filter((e) => e.title.trim() && posting.title && bigramSimilarity(e.title, posting.title) >= 0.85)) ??
+    newest(sameCo.filter((e) => !e.title.trim()))
   return { alreadyApplied: null, possiblyApplied: possible }
+}
+
+/** "Oct 22, 2026" for "2026-10-22"; a date that isn't one stays as it is. */
+export function appliedDay(iso: string): string {
+  const d = new Date(`${iso.slice(0, 10)}T12:00:00`)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/** One line for an application you made, or might have, for the page and the panel. */
+export function appliedLine(c: AppliedCheck): { text: string; sure: boolean } | null {
+  const e = c.alreadyApplied ?? c.possiblyApplied
+  if (!e) return null
+  const when = e.dateApplied ? ` on ${appliedDay(e.dateApplied)}` : ''
+  const status = e.status && e.status !== 'Applied' ? ` · ${e.status}` : ''
+  if (c.alreadyApplied) return { text: `You applied${when}${status}`, sure: true }
+  return {
+    text: e.title.trim() ? `You applied for “${e.title.trim()}” here${when}${status}` : `You applied to ${e.company}${when}${status} (role not saved)`,
+    sure: false,
+  }
 }

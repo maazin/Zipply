@@ -3,6 +3,7 @@ import type { AppliedEntry, FieldReport, Posting, Profile, ResumeMeta, Settings,
 import type { AiText, FrameInfo, JobContext, LogResult, ScanResult } from '@/shared/messages'
 import { isError, send, sendToFrame } from '@/shared/messages'
 import { computeVerdict } from '@/core/score/verdict'
+import { appliedLine } from '@/core/score/applied'
 import { getProfile, listResumes } from '@/lib/repo'
 import { isLocked, unlock } from '@/lib/keys'
 import { runChecks, type ChecksResult } from '@/lib/checks'
@@ -418,14 +419,9 @@ function VerdictCard({ checks, verdict }: { checks: ChecksResult; verdict: NonNu
       </button>
       <p className="mt-0.5 text-sm text-muted">{verdict.reason}</p>
 
-      {applied.alreadyApplied && (
-        <p className="mt-3 flex items-center gap-2 text-sm text-bad">
-          <Dot tone="bad" /> You applied on {applied.alreadyApplied.dateApplied} ({applied.alreadyApplied.status})
-        </p>
-      )}
-      {applied.possiblyApplied && (
-        <p className="mt-3 flex items-center gap-2 text-sm text-warn">
-          <Dot tone="warn" /> Possibly applied: “{applied.possiblyApplied.title}” on {applied.possiblyApplied.dateApplied}
+      {appliedLine(applied) && (
+        <p className={cx('mt-3 flex items-center gap-2 text-sm', applied.alreadyApplied ? 'text-bad' : 'text-warn')}>
+          <Dot tone={applied.alreadyApplied ? 'bad' : 'warn'} /> {appliedLine(applied)!.text}
         </p>
       )}
 

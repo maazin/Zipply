@@ -14,7 +14,7 @@ import { askField, fillPage, lastReports, refreshMissing, tracked, watchAnswers 
 import { genericPosting, mergePosting, postingFromJsonLd } from './posting'
 import { detectApplication } from './detect'
 import { sanitizeForm } from './capture'
-import { showSideTab, watchSideTab } from './sideTab'
+import { showApplied, showSideTab, watchSideTab } from './sideTab'
 import { clearStale, decorateCards, handshakeApplications, isHandshakeApplications, isListingHost, listingPosting, pillFor, placePill, siteFor, type ListingScore } from './listings'
 
 declare global {
@@ -97,6 +97,21 @@ function main() {
     return value
   }
 
+  /**
+   * Say beside the Zipply tab when you've applied to this job before, with the
+   * date. Asked once per posting; a new posting with no match clears it.
+   */
+  let appliedFor = ''
+  function lookupApplied(p: Posting | null) {
+    if (window !== window.top || !p || (!p.company && !p.title)) return
+    const key = `${p.company}|${p.title}|${p.jobId}|${canonicalUrl(p.url)}`
+    if (appliedFor === key) return
+    appliedFor = key
+    send<{ text: string; sure: boolean } | null>({ type: 'applied:lookup', posting: p })
+      .then((line) => appliedFor === key && showApplied(line ?? null))
+      .catch(() => undefined)
+  }
+
   /** A job description page with no form: tell the service worker, once per page, for the "Apply" that follows. */
   let seenJob = ''
   function noteJobPage() {
@@ -107,7 +122,9 @@ function main() {
     if (!p || (!p.title && !p.company) || (p.description ?? '').length < 200) return
     seenJob = key
     void showSideTab('job')
-    send({ type: 'job:seen', posting: mergePosting(location.href, p) }).catch(() => undefined)
+    const posting = mergePosting(location.href, p)
+    send({ type: 'job:seen', posting }).catch(() => undefined)
+    lookupApplied(posting)
   }
 
   function fieldCount(): number {
@@ -136,6 +153,7 @@ function main() {
       lastStatus = status
       const p = window === window.top || fields > 0 ? await getPosting().catch(() => null) : null
       send({ type: 'frame:status', ats: adapter.name, fields, confirmation, posting: p }).catch(() => undefined)
+      if (!confirmation) lookupApplied(p)
     }
     if (confirmation && confirmedFor !== location.href) {
       confirmedFor = location.href
@@ -292,6 +310,8 @@ function main() {
       void showSideTab('job')
       send({ type: 'job:seen', posting: p }).catch(() => undefined)
     }
+    // The detail pane is reused for the next job, so this follows the job shown.
+    lookupApplied(p)
     const appliedOn = p ? site.appliedOn?.(document, p.jobId) : ''
     if (p && appliedOn) reportApplied([{ posting: p, date: appliedOn }])
     if (listingsOff) return

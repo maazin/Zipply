@@ -3,7 +3,7 @@ import { extractKeywords, splitPosting, hasSkill } from '@/core/score/keywords'
 import { computeMatch, sectionCompleteness } from '@/core/score/matchScore'
 import { computeVerdict } from '@/core/score/verdict'
 import { computeRedFlags, tierFor } from '@/core/score/redFlags'
-import { checkApplied } from '@/core/score/applied'
+import { appliedLine, checkApplied } from '@/core/score/applied'
 import { parseSalary, yearsRequired, sponsorshipStance } from '@/core/score/postingSignals'
 import { atsReport, columnSwitches } from '@/core/score/atsCheck'
 import { keywordInText, normalizeCompany } from '@/shared/text'
@@ -224,14 +224,24 @@ describe('already applied', () => {
     key: '', appId: 'a1', company: 'Globex Inc', companyNorm: normalizeCompany('Globex Inc'), title: 'Data Analyst I', jobId: 'R-100',
     url: '', dateApplied: '2026-09-20', status: 'Applied', firstReply: '', lastStatusChange: '', ...o,
   })
-  const now = new Date('2026-10-04')
-  it('finds the same job by company and job ID', () => {
-    expect(checkApplied(posting(), [entry({})], now).alreadyApplied).not.toBeNull()
+  it('finds the same job by company and job ID, and says when', () => {
+    const r = checkApplied(posting(), [entry({ status: 'Rejected' })])
+    expect(r.alreadyApplied).not.toBeNull()
+    expect(appliedLine(r)).toEqual({ text: 'You applied on Sep 20, 2026 · Rejected', sure: true })
   })
-  it('warns softly about the same job on another ATS', () => {
-    const r = checkApplied(posting({ jobId: '55512', url: 'https://boards.greenhouse.io/globex/jobs/55512' }), [entry({ title: 'Data Analyst 1' })], now)
+  it('warns softly about the same job on another ATS, however long ago', () => {
+    const r = checkApplied(posting({ jobId: '55512', url: 'https://boards.greenhouse.io/globex/jobs/55512' }), [entry({ title: 'Data Analyst 1', dateApplied: '2026-03-02' })])
     expect(r.alreadyApplied).toBeNull()
     expect(r.possiblyApplied).not.toBeNull()
+    expect(appliedLine(r)?.text).toBe('You applied for “Data Analyst 1” here on Mar 2, 2026')
+  })
+  it('names the company when the application found in email has no role saved', () => {
+    const r = checkApplied(posting({ jobId: '', url: 'https://globex.com/careers/9' }), [entry({ title: '', jobId: '', company: 'Globex', companyNorm: 'globex', status: 'Received', dateApplied: '2026-10-22' })])
+    expect(appliedLine(r)).toEqual({ text: 'You applied to Globex on Oct 22, 2026 · Received (role not saved)', sure: false })
+  })
+  it("says nothing for another role at a company you've applied to", () => {
+    const r = checkApplied(posting({ jobId: '', title: 'Warehouse Lead', url: 'https://globex.com/careers/7' }), [entry({ title: 'Data Analyst I' })])
+    expect(appliedLine(r)).toBeNull()
   })
 })
 

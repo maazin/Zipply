@@ -84,6 +84,8 @@ export type ContentToBg =
   | { type: 'score:posting'; posting: Posting }
   /** Field states changed after a fill (you edited something); not a fill. */
   | { type: 'job:seen'; posting: Posting }
+  /** Have you applied to this posting? For the line beside the page's Zipply tab. */
+  | { type: 'applied:lookup'; posting: Posting }
   /** The site says you applied (Handshake's "Applied on …", its list of your applications). */
   | { type: 'job:applied'; jobs: { posting: Posting; date: string }[] }
   | { type: 'auto:get' }

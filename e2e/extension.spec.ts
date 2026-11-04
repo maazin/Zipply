@@ -266,6 +266,39 @@ test('The Zipply tab sits on job pages, opens the panel, and hides per site', as
   await job.close()
 })
 
+test('A job you applied to says so beside the Zipply tab, with the date', async () => {
+  // An application found in email: company and date, no role or job ID.
+  const row = { key: 'row|e2e1', appId: 'e2e1', company: 'Initech', companyNorm: 'initech', title: '', jobId: '', url: '', dateApplied: '2026-10-22', status: 'Rejected', firstReply: '', lastStatusChange: '2026-10-24' }
+  const store = (op: 'put' | 'delete') =>
+    worker.evaluate(
+      ([op, row]) =>
+        new Promise<void>((res) => {
+          const r = indexedDB.open('zipply')
+          r.onsuccess = () => {
+            const s = r.result.transaction('applied', 'readwrite').objectStore('applied')
+            const q = op === 'put' ? s.put(row) : s.delete(row.key)
+            q.onsuccess = () => res()
+          }
+        }),
+      [op, row] as const,
+    )
+  await store('put')
+  const job = await context.newPage()
+  await job.goto('https://careers.initech.com/jobs/42')
+  const line = job.locator('zipply-tab .applied')
+  await expect(line).toBeVisible({ timeout: 10_000 })
+  await expect(line).toHaveText('You applied to Initech on Oct 22, 2026 · Rejected (role not saved)')
+  await job.close()
+  await store('delete')
+  // With no application, nothing is said.
+  const again = await context.newPage()
+  await again.goto('https://careers.initech.com/jobs/43')
+  await expect(again.locator('zipply-tab .tab')).toBeVisible({ timeout: 10_000 })
+  await again.waitForTimeout(1500)
+  await expect(again.locator('zipply-tab .applied')).toBeHidden()
+  await again.close()
+})
+
 test('Logs a submit that redirects to a different thank-you address', async () => {
   const unlogged = () =>
     worker.evaluate(
