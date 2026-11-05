@@ -17,7 +17,7 @@ export interface ListingSite {
   location: string
   description: string
   /** For pages a selector can't read (Handshake's generated class names). */
-  read?(doc: Document): { company?: string; location?: string; description?: string }
+  read?(doc: Document): { title?: string; company?: string; location?: string; description?: string }
   /** The date (ISO) the open job says you applied, if it says so. */
   appliedOn?(doc: Document, jobId: string): string
   /** Job cards in the results list, and how to read a card's job ID. */
@@ -25,6 +25,10 @@ export interface ListingSite {
   cardId(card: Element): string
   cardTitle(card: Element): Element | null
 }
+
+const LINKEDIN_DESCRIPTION = '#job-details, .jobs-description__content, .jobs-description-content__text, .show-more-less-html__markup, .description__text'
+/** Headings after LinkedIn's description. */
+const LINKEDIN_AFTER = /^(About the company|Meet the hiring team|People (also viewed|you can reach out to)|Similar jobs|More jobs.*|Benefits found in job post|Job search faster with Premium)$/i
 
 export const SITES: ListingSite[] = [
   {
@@ -39,7 +43,23 @@ export const SITES: ListingSite[] = [
     title: '.job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, .top-card-layout__title, .jobs-details h1, h1.t-24',
     company: '.job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name, .topcard__org-name-link, .top-card-layout__second-subline a',
     location: '.job-details-jobs-unified-top-card__primary-description-container .tvm__text, .job-details-jobs-unified-top-card__bullet, .topcard__flavor--bullet',
-    description: '#job-details, .jobs-description__content, .jobs-description-content__text, .show-more-less-html__markup, .description__text',
+    description: LINKEDIN_DESCRIPTION,
+    // LinkedIn's newer layout (/jobs/search-results/) has generated class names and
+    // no h1, so the selectors above find nothing. The page title still says
+    // "Software Engineer | Discernis | LinkedIn", and the description sits under
+    // "About the job" until "About the company".
+    read: (doc) => {
+      if (doc.querySelector(LINKEDIN_DESCRIPTION)) return {}
+      const parts = doc.title.replace(/^\(\d+\)\s*/, '').split(' | ')
+      if (parts.length < 3 || parts[parts.length - 1] !== 'LinkedIn') return {}
+      // The smallest block around the heading that holds the text: Premium upsells sit
+      // between "About the job" and "About the company", outside it.
+      const head = Array.from((doc.querySelector('main') ?? doc.body).querySelectorAll('h2')).find((h) => /^About the job$/i.test(h.textContent?.trim() ?? ''))
+      let box = head?.parentElement ?? null
+      while (box && (box.textContent?.trim().length ?? 0) < (head!.textContent?.trim().length ?? 0) + 100) box = box.parentElement
+      const description = box ? sectionText(box, /^About the job$/i, LINKEDIN_AFTER) : ''
+      return { title: parts[0].trim(), company: parts[1].trim(), description }
+    },
     cards: '[data-occludable-job-id], li [data-job-id], .job-card-container[data-job-id]',
     cardId: (c) => c.getAttribute('data-occludable-job-id') || c.getAttribute('data-job-id') || c.querySelector('[data-job-id]')?.getAttribute('data-job-id') || '',
     cardTitle: (c) => c.querySelector('.job-card-list__title, .job-card-list__title--link, .job-card-container__link, a[href*="/jobs/view/"]'),
@@ -182,7 +202,10 @@ export function listingPosting(site: ListingSite, doc: Document, url: URL): Post
   const description = extra.description ?? (descEl ? cleanText(descEl) : '')
   // The title without our own pill's text.
   const titleEl = doc.querySelector(site.title)
-  const title = titleEl ? Array.from(titleEl.childNodes).filter((n) => !(n instanceof Element && n.hasAttribute('data-zipply-pill'))).map((n) => n.textContent).join('').replace(/\s+/g, ' ').trim() : ''
+  const title =
+    (titleEl ? Array.from(titleEl.childNodes).filter((n) => !(n instanceof Element && n.hasAttribute('data-zipply-pill'))).map((n) => n.textContent).join('').replace(/\s+/g, ' ').trim() : '') ||
+    extra.title ||
+    ''
   if (!id || !title || description.length < 80) return null
   return mergePosting(site.jobUrl(id, url), {
     title,

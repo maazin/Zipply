@@ -90,6 +90,14 @@ Globex is an equal opportunity employer and does not discriminate; we use Tablea
     // "About you" is about you, not the employer.
     expect(splitPosting('About you:\n- Strong Excel skills').required).toContain('Excel')
   })
+  it('reads the job after an "About <Company>" section, whatever its headings are called', () => {
+    const terms = (jd: string) => extractKeywords(jd).filter((k) => k.tech).map((k) => k.term)
+    const about = 'About Initech\nInitech builds payroll software for 4,000 companies.\nWe were founded in 1999.\n'
+    for (const head of ['Job Description', 'About this role', 'Key Responsibilities', "What you'll bring", 'Minimum Requirements', 'Position Summary:', 'The Team We Need:'])
+      expect(terms(`${about}${head}\n- Build ETL pipelines in Python and SQL\n- Deploy on AWS with Docker`), head).toEqual(expect.arrayContaining(['Python', 'SQL', 'AWS', 'Docker']))
+    // A heading it has never seen still doesn't lose the job: most of the posting would have gone, so it reads all of it.
+    expect(terms(`${about}Here's the gig\n- Python, SQL and Spark daily\n- Airflow and dbt for orchestration\n- Ship to AWS`)).toEqual(expect.arrayContaining(['Python', 'SQL', 'Spark']))
+  })
 })
 
 describe('keyword matching on real postings', () => {

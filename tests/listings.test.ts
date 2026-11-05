@@ -26,6 +26,22 @@ describe('listing sites', () => {
     expect(p!.description).toContain('SQL and Python')
   })
 
+  it("reads LinkedIn's newer layout: generated class names, no h1, the job by its headings", () => {
+    document.title = '(3) Software Engineer | Discernis | LinkedIn'
+    document.body.innerHTML = `<main><div class="d7iayq"><div class="d7iayy"><h2 class="d7ilje">About the job</h2></div>
+      <div class="d7il5x"><p>Discernis builds analytics for the public sector.</p><p>What you'll do</p><ul><li>Build services in Python and Go</li><li>Ship to AWS with Docker and Kubernetes</li></ul>
+      <p>You have 2+ years with PostgreSQL and REST APIs.</p></div></div>
+      <div><p>Job search faster with Premium</p><p>Restart Premium for $0 and see who's hiring for Tableau roles</p></div>
+      <div><h2 class="d7ilje">About the company</h2><p>Discernis was founded in 2015 and uses Salesforce.</p></div></main>`
+    const url = new URL('https://www.linkedin.com/jobs/search-results/?currentJobId=4484491111&keywords=software%20engineer')
+    const p = listingPosting(siteFor(url)!, document, url)
+    expect(p).toMatchObject({ title: 'Software Engineer', company: 'Discernis', jobId: '4484491111' })
+    expect(p!.description).toContain('Build services in Python and Go')
+    expect(p!.description).not.toContain('Salesforce')
+    expect(p!.description).not.toContain('Premium')
+    document.title = ''
+  })
+
   it('reads the open Indeed job', () => {
     load('indeed.html')
     const url = new URL('https://www.indeed.com/jobs?q=analyst&vjk=abc123')

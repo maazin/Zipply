@@ -11,9 +11,13 @@ export interface Keyword {
   weight: number
 }
 
-const REQUIRED_HEAD = /^(requirements?|required|must[- ]haves?|minimum qualifications?|basic qualifications?|what you('|’)?ll need|what we('|’)?re looking for|you have|qualifications|who you are|about you|skills( and| &) experience)\b/i
+// Plain words ("Experience", "Skills") count only as the whole heading: a bullet
+// starting "Experience with Snowflake" is content.
+const REQUIRED_HEAD =
+  /^(((key |minimum |basic |essential |core |required )?(requirements?|qualifications?|skills)|experience|education)(\s*(and|&|\/)\s*[\w ]{1,30})?$|required\b|must[- ]haves?\b|minimum qualifications?\b|basic qualifications?\b|what you('|’)?ll (need|bring)\b|what you bring\b|what we('|’)?re looking for\b|you have\b|who you are\b|about you\b|your (skills|experience|background|profile)\b|(the )?ideal candidate\b|skills( and| &) experience\b)/i
 const PREFERRED_HEAD = /^(preferred|nice[- ]to[- ]haves?|bonus|pluses|plus|preferred qualifications?|additional qualifications?|it('|’)?s a plus|extra credit|good to have)\b/i
-const OTHER_HEAD = /^(responsibilities|what you('|’)?ll do|the role|about the role|role overview|day to day|your impact|about the (job|position|opportunity))\b/i
+const OTHER_HEAD =
+  /^((key |main |core )?responsibilities\b|essential (functions|duties)\b|what you('|’)?ll (do|be doing)\b|the (role|opportunity|position)\b|your role\b|role (overview|summary)\b|day to day\b|your impact\b|about (the|this) (job|role|position|opportunity)\b|job (description|summary|overview|details|purpose)\b|position (summary|overview|description)\b|(duties|description|overview|summary)$)/i
 // About the employer, not the job: its products and perks aren't skills you need.
 const IGNORE_HEAD = /^(about (us|the company|the team|[A-Z][\w&.' -]{1,40})|who we are|our (company|mission|story|values|culture|team)|benefits|perks|what we offer|compensation|pay (range|transparency)|salary|equal (employment )?opportunity|eeo|diversity|accommodations?|why (join|work)|life at|privacy|disclaimer|how to apply|application process)\b/i
 // Legal and recruiting boilerplate that can sit anywhere.
@@ -24,7 +28,15 @@ const BOILERPLATE = /equal opportunity employer|without regard to|regardless of 
  * Sections about the employer (About us, Benefits, EEO) are left out.
  */
 export function splitPosting(text: string): Record<KeywordTier, string> {
+  return split(text).parts
+}
+
+/** The split, and whether a job heading ever followed the employer's section. */
+function split(text: string): { parts: Record<KeywordTier, string>; kept: number; skipped: number; lost: boolean } {
   const out: Record<KeywordTier, string[]> = { required: [], preferred: [], other: [] }
+  let skipped = 0
+  let ignored = false
+  let jobHeading = false
   let tier: KeywordTier | 'ignore' = 'other'
   for (const raw of text.split(/\n+/)) {
     const line = raw.trim()
@@ -33,28 +45,48 @@ export function splitPosting(text: string): Record<KeywordTier, string> {
     const isHeading = head.length < 70 && (/[:：]$/.test(line) || !/[.!?]$/.test(line))
     if (isHeading && PREFERRED_HEAD.test(head)) {
       tier = 'preferred'
+      jobHeading = true
       continue
     }
     if (isHeading && REQUIRED_HEAD.test(head)) {
       tier = 'required'
+      jobHeading = true
       continue
     }
     if (isHeading && OTHER_HEAD.test(head)) {
       tier = 'other'
+      jobHeading = true
       continue
     }
     if (isHeading && IGNORE_HEAD.test(head)) {
       tier = 'ignore'
+      ignored = true
       continue
     }
-    if (tier === 'ignore' || BOILERPLATE.test(line)) continue
+    // Any other heading ends a section about the employer ("Job Description:").
+    if (tier === 'ignore' && isHeading && /[:：]$/.test(line)) {
+      tier = 'other'
+      jobHeading = true
+      continue
+    }
+    if (tier === 'ignore') {
+      skipped++
+      continue
+    }
+    if (BOILERPLATE.test(line)) continue
     // Inline cues inside a bullet override the section.
     let lineTier: KeywordTier = tier
     if (/\b(preferred|nice to have|a plus|is a plus|bonus)\b/i.test(line)) lineTier = 'preferred'
     else if (/\b(required|must have|must be|minimum of)\b/i.test(line)) lineTier = 'required'
     out[lineTier].push(line)
   }
-  return { required: out.required.join('\n'), preferred: out.preferred.join('\n'), other: out.other.join('\n') }
+  return {
+    parts: { required: out.required.join('\n'), preferred: out.preferred.join('\n'), other: out.other.join('\n') },
+    kept: out.required.length + out.preferred.length + out.other.length,
+    skipped,
+    // An employer's section with no job heading after it may have swallowed the job.
+    lost: ignored && !jobHeading,
+  }
 }
 
 function variants(s: SkillDef): string[] {
@@ -89,8 +121,26 @@ export function hasSkill(skill: SkillDef | string, text: string): boolean {
 const TIER_WEIGHT: Record<KeywordTier, number> = { required: 2, preferred: 1, other: 1 }
 
 /** Dictionary terms found in the posting, ranked. */
+/** Fewer technical skills than this and a score means nothing (see MIN_KEYWORDS in lib/checks). */
+const FEW = 3
+
 export function extractKeywords(posting: string): Keyword[] {
-  const parts = splitPosting(posting)
+  const { parts, kept, skipped, lost } = split(posting)
+  const found = keywordsIn(parts)
+  // A heading the splitter doesn't know can hide the whole job behind "About us".
+  // When no job heading came after it, most of the posting was set aside and too
+  // few skills are left, read all of it (less its legal boilerplate) rather than
+  // show no score.
+  if (found.filter((k) => k.tech).length >= FEW || !lost || skipped <= kept) return found
+  const whole = posting
+    .split(/\n+/)
+    .filter((l) => !BOILERPLATE.test(l))
+    .join('\n')
+  const all = keywordsIn({ required: '', preferred: '', other: whole })
+  return all.filter((k) => k.tech).length > found.filter((k) => k.tech).length ? all : found
+}
+
+function keywordsIn(parts: Record<KeywordTier, string>): Keyword[] {
   const found = new Map<string, Keyword>()
   for (const s of SKILLS) {
     if (!s.tech && s.weight < SOFT_WEIGHT) continue
