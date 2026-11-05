@@ -90,6 +90,17 @@ Globex is an equal opportunity employer and does not discriminate; we use Tablea
     // "About you" is about you, not the employer.
     expect(splitPosting('About you:\n- Strong Excel skills').required).toContain('Excel')
   })
+  it("doesn't drop a one-line description for the legal sentence in it (Workday's NASCAR posting)", () => {
+    // Workday's structured data: the whole posting on one line, its EEO note in the middle.
+    const jd =
+      'At NASCAR, you will work alongside passionate people. What You Will Do: Prepare, combine, and analyze data using SQL and Python. ' +
+      'Apply statistical methods and support predictive modeling. What You Will Bring: Degree in Data Science or Statistics. ' +
+      'Understanding of core statistical concepts and familiarity with basic machine learning methods and model evaluation. ' +
+      'Foundational understanding of generative AI. NASCAR is an Equal Opportunity Employer and does not discriminate. ' +
+      'For more information visit www.NASCAR.com and follow NASCAR on Instagram.'
+    const terms = extractKeywords(jd).filter((k) => k.tech).map((k) => k.term)
+    expect(terms).toEqual(expect.arrayContaining(['SQL', 'Python', 'Machine learning', 'Statistics']))
+  })
   it('reads the job after an "About <Company>" section, whatever its headings are called', () => {
     const terms = (jd: string) => extractKeywords(jd).filter((k) => k.tech).map((k) => k.term)
     const about = 'About Initech\nInitech builds payroll software for 4,000 companies.\nWe were founded in 1999.\n'
@@ -137,12 +148,31 @@ describe('verdict thresholds', () => {
 })
 
 describe('match score (Resume-Matcher compute_ats_score)', () => {
-  it('weights keyword, skills and sections 0.55 / 0.25 / 0.20', () => {
-    const r = computeMatch({ resumeId: 'r', resumeText: RESUME, posting: JD, profile: profile() })
-    const expected = Math.round(r.keywordMatch * 0.55 + r.skillsCoverage * 0.25 + r.sectionCompleteness * 0.2)
+  it('weights keywords, skills, title, sections and dates 0.40 / 0.20 / 0.15 / 0.15 / 0.10', () => {
+    const r = computeMatch({ resumeId: 'r', resumeText: RESUME, posting: JD, profile: profile(), jobTitle: 'Data Analyst' })
+    const expected = Math.round(r.keywordMatch * 0.4 + r.skillsCoverage * 0.2 + r.titleMatch! * 0.15 + r.sectionCompleteness * 0.15 + r.dateConsistency! * 0.1)
     expect(Math.abs(r.score - expected)).toBeLessThanOrEqual(1)
+    // Four sections and an email or phone.
     expect(r.sectionCompleteness).toBe(100)
     expect(r.matched).toEqual(expect.arrayContaining(['SQL', 'Python', 'Tableau', 'Excel']))
+  })
+  it('leaves out what it can\'t measure and shares its weight', () => {
+    // No job title (a pasted description): the other four carry the score.
+    const r = computeMatch({ resumeId: 'r', resumeText: RESUME, posting: JD, profile: profile() })
+    expect(r.titleMatch).toBeNull()
+    const expected = Math.round((r.keywordMatch * 0.4 + r.skillsCoverage * 0.2 + r.sectionCompleteness * 0.15 + r.dateConsistency! * 0.1) / 0.85)
+    expect(Math.abs(r.score - expected)).toBeLessThanOrEqual(1)
+  })
+  it('matches the job title in the headline, the summary, or by its words, ignoring seniority', async () => {
+    const { titleMatch, dateConsistency } = await import('@/core/score/matchScore')
+    expect(titleMatch('Junior Data Scientist', 'Ada Lovelace\nData Scientist\nada@example.com')).toBe(100)
+    expect(titleMatch('Data Analyst II', 'Ada Lovelace\nada@example.com\nTampa, FL\nSummary\nA data analyst who likes clean pipelines.')).toBe(75)
+    expect(titleMatch('Machine Learning Engineer', 'Ada Lovelace\nSoftware Engineer\nada@example.com')).toBeCloseTo(50 / 3)
+    expect(titleMatch('', 'anything')).toBeNull()
+    // Dates in one style score 100; mixed styles less; fewer than two, not at all.
+    expect(dateConsistency('May 2024 - Aug 2025\nJan 2023 - Apr 2024')).toBe(100)
+    expect(dateConsistency('May 2024 - 08/2025\n2023-01 - Apr 2024')).toBe(50)
+    expect(dateConsistency('Since 2024')).toBeNull()
   })
   it('splits missing keywords into Can add and Real gap', () => {
     const p = profile()
@@ -153,7 +183,12 @@ describe('match score (Resume-Matcher compute_ats_score)', () => {
     expect(r.tips.join(' ')).not.toMatch(/Snowflake/)
   })
   it('finds sections', () => {
-    expect(sectionCompleteness('Experience\nfoo\nEducation\nbar')).toBe(50)
+    // Two of four sections and no way to reach you: 2 of 5.
+    expect(sectionCompleteness('Experience\nfoo\nEducation\nbar')).toBe(40)
+    expect(sectionCompleteness('ada@example.com\nExperience\nfoo\nEducation\nbar')).toBe(60)
+    expect(sectionCompleteness('(813) 555-0100\nExperience\nfoo')).toBe(40)
+    // A date range isn't a phone number.
+    expect(sectionCompleteness('Experience\nMay 2024 - 2025 1234')).toBe(20)
   })
 })
 

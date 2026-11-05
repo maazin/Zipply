@@ -14,10 +14,10 @@ export interface Keyword {
 // Plain words ("Experience", "Skills") count only as the whole heading: a bullet
 // starting "Experience with Snowflake" is content.
 const REQUIRED_HEAD =
-  /^(((key |minimum |basic |essential |core |required )?(requirements?|qualifications?|skills)|experience|education)(\s*(and|&|\/)\s*[\w ]{1,30})?$|required\b|must[- ]haves?\b|minimum qualifications?\b|basic qualifications?\b|what you('|’)?ll (need|bring)\b|what you bring\b|what we('|’)?re looking for\b|you have\b|who you are\b|about you\b|your (skills|experience|background|profile)\b|(the )?ideal candidate\b|skills( and| &) experience\b)/i
+  /^(((key |minimum |basic |essential |core |required )?(requirements?|qualifications?|skills)|experience|education)(\s*(and|&|\/)\s*[\w ]{1,30})?$|required\b|must[- ]haves?\b|minimum qualifications?\b|basic qualifications?\b|what you('|’)?ll (need|bring)\b|what you will (need|bring)\b|what you bring\b|what we('|’)?re looking for\b|you have\b|who you are\b|about you\b|your (skills|experience|background|profile)\b|(the )?ideal candidate\b|skills( and| &) experience\b)/i
 const PREFERRED_HEAD = /^(preferred|nice[- ]to[- ]haves?|bonus|pluses|plus|preferred qualifications?|additional qualifications?|it('|’)?s a plus|extra credit|good to have)\b/i
 const OTHER_HEAD =
-  /^((key |main |core )?responsibilities\b|essential (functions|duties)\b|what you('|’)?ll (do|be doing)\b|the (role|opportunity|position)\b|your role\b|role (overview|summary)\b|day to day\b|your impact\b|about (the|this) (job|role|position|opportunity)\b|job (description|summary|overview|details|purpose)\b|position (summary|overview|description)\b|(duties|description|overview|summary)$)/i
+  /^((key |main |core )?responsibilities\b|essential (functions|duties)\b|what you('|’)?ll (do|be doing)\b|what you will (do|be doing)\b|the (role|opportunity|position)\b|your role\b|role (overview|summary)\b|day to day\b|your impact\b|about (the|this) (job|role|position|opportunity)\b|job (description|summary|overview|details|purpose)\b|position (summary|overview|description)\b|(duties|description|overview|summary)$)/i
 // About the employer, not the job: its products and perks aren't skills you need.
 const IGNORE_HEAD = /^(about (us|the company|the team|[A-Z][\w&.' -]{1,40})|who we are|our (company|mission|story|values|culture|team)|benefits|perks|what we offer|compensation|pay (range|transparency)|salary|equal (employment )?opportunity|eeo|diversity|accommodations?|why (join|work)|life at|privacy|disclaimer|how to apply|application process)\b/i
 // Legal and recruiting boilerplate that can sit anywhere.
@@ -31,6 +31,19 @@ export function splitPosting(text: string): Record<KeywordTier, string> {
   return split(text).parts
 }
 
+/**
+ * The posting's lines, long ones cut into sentences. A description given as one
+ * line (Workday's structured data has no line breaks) would otherwise be dropped
+ * whole for the one sentence of legal boilerplate in it.
+ */
+function lines(text: string): string[] {
+  return text
+    .split(/\n+/)
+    .flatMap((l) => (l.length > 300 ? l.split(/(?<=[.!?])\s+(?=[A-Z])/) : [l]))
+    .map((l) => l.trim())
+    .filter(Boolean)
+}
+
 /** The split, and whether a job heading ever followed the employer's section. */
 function split(text: string): { parts: Record<KeywordTier, string>; kept: number; skipped: number; lost: boolean } {
   const out: Record<KeywordTier, string[]> = { required: [], preferred: [], other: [] }
@@ -38,9 +51,7 @@ function split(text: string): { parts: Record<KeywordTier, string>; kept: number
   let ignored = false
   let jobHeading = false
   let tier: KeywordTier | 'ignore' = 'other'
-  for (const raw of text.split(/\n+/)) {
-    const line = raw.trim()
-    if (!line) continue
+  for (const line of lines(text)) {
     const head = line.replace(/^[#*\-•\s]+/, '').replace(/[:：]\s*$/, '')
     const isHeading = head.length < 70 && (/[:：]$/.test(line) || !/[.!?]$/.test(line))
     if (isHeading && PREFERRED_HEAD.test(head)) {
@@ -132,8 +143,7 @@ export function extractKeywords(posting: string): Keyword[] {
   // few skills are left, read all of it (less its legal boilerplate) rather than
   // show no score.
   if (found.filter((k) => k.tech).length >= FEW || !lost || skipped <= kept) return found
-  const whole = posting
-    .split(/\n+/)
+  const whole = lines(posting)
     .filter((l) => !BOILERPLATE.test(l))
     .join('\n')
   const all = keywordsIn({ required: '', preferred: '', other: whole })

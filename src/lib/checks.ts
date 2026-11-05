@@ -28,7 +28,7 @@ export interface ChecksResult {
 export async function runChecks(posting: Posting, profile: Profile): Promise<ChecksResult> {
   const [resumes, applied] = await Promise.all([getResumeTexts(), db.applied.toArray()])
   const keywords = extractKeywords(posting.description)
-  const ranked = posting.description ? rankResumes(resumes.map((r) => ({ id: r.id, text: r.text })), posting.description, profile) : []
+  const ranked = posting.description ? rankResumes(resumes.map((r) => ({ id: r.id, text: r.text })), posting.description, profile, posting.title) : []
   const matches = ranked.map((m) => {
     const r = resumes.find((x) => x.id === m.resumeId)!
     return { ...m, tag: r.tag, name: r.name, ats: atsReport(r.content, keywords) }

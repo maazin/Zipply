@@ -295,6 +295,10 @@ export interface MatchResult {
   keywordMatch: number
   skillsCoverage: number
   sectionCompleteness: number
+  /** The job title in your headline or summary; null with no job title. */
+  titleMatch?: number | null
+  /** Dates written one way; null under two dates. */
+  dateConsistency?: number | null
   matched: string[]
   /** Missing here but present in profile or another resume. */
   canAdd: string[]
