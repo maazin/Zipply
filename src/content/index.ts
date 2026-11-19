@@ -15,7 +15,7 @@ import { genericPosting, mergePosting, postingFromJsonLd } from './posting'
 import { detectApplication } from './detect'
 import { sanitizeForm } from './capture'
 import { showApplied, showSideTab, watchSideTab } from './sideTab'
-import { clearStale, decorateCards, handshakeApplications, isHandshakeApplications, isListingHost, listingPosting, pillFor, placePill, siteFor, type ListingScore } from './listings'
+import { clearStale, decorateCards, handshakeApplications, isHandshakeApplications, isLinkedInApplications, isListingHost, linkedinApplications, listingPosting, pillFor, placePill, siteFor, titleFor, type ListingScore } from './listings'
 
 declare global {
   interface Window {
@@ -282,7 +282,7 @@ function main() {
     return true
   })
 
-  // Match scores on LinkedIn and Indeed listings (top frame only).
+  // Match scores on LinkedIn, Indeed and Handshake listings (top frame only).
   const scores = new Map<string, ListingScore>()
   const asked = new Set<string>()
   let listingsOff = false
@@ -301,6 +301,8 @@ function main() {
     // Handshake applies inside its own page, with no confirmation page to see:
     // its list of your applications, and the "Applied on" line on a job, say so.
     if (isHandshakeApplications(url)) return reportApplied(handshakeApplications(document))
+    // LinkedIn's Easy Apply has no confirmation page either; its Job tracker lists what you applied to.
+    if (isLinkedInApplications(url)) return reportApplied(linkedinApplications(document))
     const site = siteFor(url)
     if (!site) return
     const p = listingPosting(site, document, url)
@@ -323,9 +325,10 @@ function main() {
       else asked.delete(p.jobId)
     }
     const s = p ? scores.get(p.jobId) : undefined
-    const title = document.querySelector(site.title)
+    const shown = site.jobId(url, document)
+    const title = titleFor(site, document, shown)
     // The detail pane is reused: drop the last job's pill as soon as another opens.
-    clearStale(title, site.jobId(url, document))
+    clearStale(title, shown)
     if (p && s && title && !pillFor(title, p.jobId)) placePill(title, p.jobId, s)
     decorateCards(site, document, scores)
   }

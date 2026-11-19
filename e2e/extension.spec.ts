@@ -877,6 +877,55 @@ test('Logs applications Handshake says you made', async () => {
   await context.unroute('https://app.joinhandshake.com/**')
 })
 
+test("Scores and logs jobs on LinkedIn's newer layout", async () => {
+  const applied = () =>
+    worker.evaluate(
+      () =>
+        new Promise<{ company: string; title: string; dateApplied: string; ats: string }[]>((res) => {
+          const r = indexedDB.open('zipply')
+          r.onsuccess = () => {
+            const q = r.result.transaction('applied').objectStore('applied').getAll()
+            q.onsuccess = () => res(q.result)
+          }
+        }),
+    )
+  const titles = async () => (await applied()).map((a) => `${a.company}: ${a.title}`)
+  const today = await worker.evaluate(() => new Date().toLocaleDateString('en-CA'))
+
+  await context.route('https://www.linkedin.com/jobs/search-results/**', (r) => r.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'linkedin-new.html'), 'utf8') }))
+  const page = await context.newPage()
+  await page.goto('https://www.linkedin.com/jobs/search-results/?currentJobId=4485612866&keywords=software%20engineer')
+  // The score sits by the open job's title and on its card.
+  await expect(page.locator('.detail p.bz2 [data-zipply-pill="4485612866"]')).toHaveText(/^(\d+ · (Apply|Maybe|Skip)|Not enough detail)/, { timeout: 10_000 })
+  await expect(page.locator('[componentkey="job-card-component-ref-4485612866"][role="button"] p.ay1 [data-zipply-pill="4485612866"]')).toHaveCount(1)
+  await expect(page.locator('[data-zipply-pill="4492202347"]')).toHaveCount(0)
+  expect(await titles()).not.toContain('BodySpec: Junior Developer')
+
+  // Easy Apply finishes inside the page: the job then shows its Application status.
+  await page.evaluate(() => {
+    document.getElementById('status-slot')!.innerHTML = '<div><h2>Application status</h2></div><div><p>Application submitted</p><p>1 minute ago</p></div>'
+  })
+  await expect.poll(titles, { timeout: 15_000 }).toContain('BodySpec: Junior Developer')
+  const row = (await applied()).find((a) => a.company === 'BodySpec')!
+  expect(row.dateApplied).toBe(today)
+  await page.close()
+  await context.unroute('https://www.linkedin.com/jobs/search-results/**')
+
+  // The Job tracker's Applied tab fills in the ones that were missed, once each.
+  await context.route('https://www.linkedin.com/jobs-tracker/**', (r) => r.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'linkedin-tracker.html'), 'utf8') }))
+  const tracker = await context.newPage()
+  await tracker.goto('https://www.linkedin.com/jobs-tracker/?stage=applied')
+  await expect.poll(titles, { timeout: 15_000 }).toEqual(expect.arrayContaining(['Webull Financial: Database Administrator', 'CGS Federal (Contact Government Services): FSR Engineer']))
+  await tracker.reload()
+  await tracker.waitForTimeout(2500)
+  const all = await titles()
+  expect(all.filter((t) => t === 'Webull Financial: Database Administrator')).toHaveLength(1)
+  expect(all).not.toContain('Old Co: Data Analyst')
+  expect((await applied()).find((a) => a.company === 'Webull Financial')!.dateApplied).toBe(today)
+  await tracker.close()
+  await context.unroute('https://www.linkedin.com/jobs-tracker/**')
+})
+
 test('Fills a SmartRecruiters form whose fields are inside web components', async () => {
   await context.route('https://jobs.smartrecruiters.com/**', (r) => r.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'smartrecruiters.html'), 'utf8') }))
   await context.route('https://api.smartrecruiters.com/**', (r) =>

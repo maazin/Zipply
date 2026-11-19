@@ -239,7 +239,7 @@ export interface Posting {
   workMode: WorkMode | ''
 }
 
-export type AtsName = 'Workday' | 'iCIMS' | 'Greenhouse' | 'Lever' | 'Ashby' | 'Oracle' | 'SmartRecruiters' | 'Handshake' | 'Other'
+export type AtsName = 'Workday' | 'iCIMS' | 'Greenhouse' | 'Lever' | 'Ashby' | 'Oracle' | 'SmartRecruiters' | 'Handshake' | 'LinkedIn' | 'Other'
 
 /** Ghosted: no answer beyond an automatic one, two months on. */
 export type AppStatus = 'Applied' | 'Received' | 'Ghosted' | 'Assessment' | 'Interview' | 'Offer' | 'Rejected'

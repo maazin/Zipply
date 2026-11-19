@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { clearStale, decorateCards, isListingHost, listingPosting, placePill, siteFor, type ListingScore } from '@/content/listings'
+import { clearStale, decorateCards, isLinkedInApplications, isListingHost, linkedinApplications, listingPosting, placePill, relativeDate, siteFor, titleFor, type ListingScore } from '@/content/listings'
 
 function load(name: string) {
   const doc = new DOMParser().parseFromString(readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8'), 'text/html')
@@ -172,3 +172,107 @@ describe('clipped and thin postings', () => {
   })
 })
 
+
+describe("LinkedIn's newer layout (/jobs/search-results/)", () => {
+  // As LinkedIn renders it in November 2026: generated class names, cards keyed by
+  // componentkey (twice, outer and inner), each line a <p>, the title read aloud
+  // from a second span, and the open job's title a plain link.
+  const card = (id: string, title: string, company: string, extra = '') => `
+    <div data-display-contents="true"><div role="button" tabindex="0" componentkey="job-card-component-ref-${id}">
+      <div componentkey="job-card-component-ref-${id}"><div><div><p class="x1"><span class="a b">${title}</span><span aria-hidden="true">${title}</span></p></div>
+      <div><p class="x2">${company}</p><p class="x3">Austin, TX (On-site)</p></div>${extra}</div></div></div></div>`
+  const DESC = 'Build services in Python and Go, ship to AWS with Docker, and keep PostgreSQL fast for our analytics product.'
+  const page = (open: string, status = '') => `<main>
+    <div data-testid="lazy-column">${card('4485612866', 'Junior Developer', 'BodySpec')}<hr role="presentation">${card('4492202347', 'Database Administrator', 'Webull Financial', '<div><p>Applied</p></div>')}</div>
+    <div><div><p>${open === '4485612866' ? 'BodySpec' : 'Webull Financial'}</p></div>
+      <div><p class="t"><a href="https://www.linkedin.com/jobs/view/${open}/">${open === '4485612866' ? 'Junior Developer' : 'Database Administrator'}</a></p></div>
+      ${status}
+      <div><h2>About the job</h2><div><p>${DESC}</p></div></div>
+      <div><h2>About the company</h2><p>Not part of the job.</p></div></div></main>`
+  const STATUS = '<div><div><h2>Application status</h2></div><div><p>Application submitted</p><p>7 minutes ago</p><a href="#">View resume</a></div></div>'
+  const url = (id: string) => new URL(`https://www.linkedin.com/jobs/search-results/?currentJobId=${id}&keywords=software%20engineer`)
+
+  it('reads the open job and finds its title link, not the card', () => {
+    document.title = 'Junior Developer | BodySpec | LinkedIn'
+    document.body.innerHTML = page('4485612866')
+    const site = siteFor(url('4485612866'))!
+    expect(listingPosting(site, document, url('4485612866'))).toMatchObject({ title: 'Junior Developer', company: 'BodySpec', jobId: '4485612866' })
+    const title = titleFor(site, document, '4485612866')!
+    expect(title.tagName).toBe('A')
+    expect(title.closest('[componentkey]')).toBeNull()
+    placePill(title, '4485612866', score)
+    expect(document.querySelectorAll('p.t [data-zipply-pill="4485612866"]')).toHaveLength(1)
+    // The title still reads cleanly with the pill beside it.
+    expect(listingPosting(site, document, url('4485612866'))!.title).toBe('Junior Developer')
+    document.title = ''
+  })
+
+  it('puts one pill on each scored card, on the title line', () => {
+    document.body.innerHTML = page('4485612866')
+    const site = siteFor(url('4485612866'))!
+    const scores = new Map([['4485612866', score]])
+    decorateCards(site, document, scores)
+    decorateCards(site, document, scores)
+    const pills = document.querySelectorAll('[data-testid="lazy-column"] [data-zipply-pill]')
+    expect(pills).toHaveLength(1)
+    expect(pills[0].getAttribute('data-zipply-pill')).toBe('4485612866')
+    expect(pills[0].parentElement!.classList.contains('x1')).toBe(true)
+    expect(pills[0].shadowRoot!.textContent).toBe('78 · Apply')
+  })
+
+  it('finds the title as text on /jobs/view/ pages, where it is not a link', () => {
+    document.title = 'Database Administrator | Webull Financial | LinkedIn'
+    document.body.innerHTML = `<main><div><p>Webull Financial</p></div><div><p class="t">Database Administrator </p></div>
+      <div><h2>About the job</h2><div><p>${DESC}</p></div></div></main>`
+    const u = new URL('https://www.linkedin.com/jobs/view/4492202347/')
+    const site = siteFor(u)!
+    expect(listingPosting(site, document, u)).toMatchObject({ title: 'Database Administrator', company: 'Webull Financial', jobId: '4492202347' })
+    expect(titleFor(site, document, '4492202347')?.className).toBe('t')
+    document.title = ''
+  })
+
+  it("dates an application from the job's Application status", () => {
+    document.body.innerHTML = page('4492202347', STATUS)
+    const site = siteFor(url('4492202347'))!
+    expect(site.appliedOn!(document, '4492202347')).toBe(relativeDate('7 minutes ago'))
+    expect(site.appliedOn!(document, '4492202347')).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    // The pane still shows another job (the next one loading): not this one's.
+    expect(site.appliedOn!(document, '4485612866')).toBe('')
+    // No status: not applied.
+    document.body.innerHTML = page('4485612866')
+    expect(site.appliedOn!(document, '4485612866')).toBe('')
+  })
+
+  it('turns "Applied 2d ago" into a day, and leaves months and years undated', () => {
+    const now = new Date('2026-11-19T15:00:00')
+    expect(relativeDate('Applied 7m ago', now)).toBe('2026-11-19')
+    expect(relativeDate('Applied 3h ago', now)).toBe('2026-11-19')
+    expect(relativeDate('Applied 16h ago', now)).toBe('2026-11-18')
+    expect(relativeDate('2 days ago', now)).toBe('2026-11-17')
+    expect(relativeDate('Applied 1w ago', now)).toBe('2026-11-12')
+    expect(relativeDate('an hour ago', now)).toBe('2026-11-19')
+    expect(relativeDate('Applied 1mo ago', now)).toBe('')
+    expect(relativeDate('Applied 2yr ago', now)).toBe('')
+    expect(relativeDate('Application submitted', now)).toBe('')
+  })
+
+  it("reads the Job tracker's Applied tab", () => {
+    expect(isLinkedInApplications(new URL('https://www.linkedin.com/jobs-tracker/?stage=applied'))).toBe(true)
+    expect(isLinkedInApplications(new URL('https://www.linkedin.com/jobs-tracker/'))).toBe(false)
+    expect(isLinkedInApplications(new URL('https://www.linkedin.com/my-items/saved-jobs/?cardType=APPLIED'))).toBe(true)
+    const row = (id: string, title: string, verified: boolean, coLoc: string, applied: string) => `
+      <div class="r"><div><input type="checkbox" aria-label="Select"></div>
+        <a href="https://www.linkedin.com/jobs/view/${id}/?trk=x"><div><span class="sr">${title}${verified ? ' (Verified job)' : ''}</span><span aria-hidden="true">${title} </span></div>
+        <div><p>${coLoc}</p><p>${applied}</p><p>(Posted 10h ago)</p></div></a>
+        <div><p>Did you hear back?</p><button><span>Yes</span></button><button><span>No</span></button></div></div>`
+    document.body.innerHTML = `<main><p>Job tracker</p><div><button>Saved · 4</button><button>Applied · 175</button></div><div>
+      ${row('4492202347', 'Database Administrator', true, 'Webull Financial · St. Petersburg, FL (On-site)', 'Applied 7m ago')}
+      ${row('4489686632', 'FSR Engineer', false, 'CGS Federal (Contact Government Services) · Tampa, FL (On-site)', 'Applied 2d ago')}
+      ${row('4400000000', 'Old Job', false, 'Initech · Remote', 'Applied 3mo ago')}
+    </div></main>`
+    const jobs = linkedinApplications(document, new Date('2026-11-19T15:00:00'))
+    expect(jobs).toHaveLength(2)
+    expect(jobs[0]).toMatchObject({ date: '2026-11-19', posting: { title: 'Database Administrator', company: 'Webull Financial', location: 'St. Petersburg, FL (On-site)', jobId: '4492202347', url: 'https://www.linkedin.com/jobs/view/4492202347/' } })
+    expect(jobs[1]).toMatchObject({ date: '2026-11-17', posting: { title: 'FSR Engineer', company: 'CGS Federal (Contact Government Services)', jobId: '4489686632' } })
+  })
+})
