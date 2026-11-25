@@ -20,7 +20,7 @@ Built by [Maazin Shaikh](https://www.linkedin.com/in/maazin-shaikh).
 - **Picks the right resume.** Keep up to 10 resumes. Zipply scores all of them against each job and suggests the best one, with what the others are missing.
 - **Shows scores while you browse.** On LinkedIn and Indeed, a small score appears next to each job you open, so you can skip bad fits early.
 - **Keeps your tracker up to date.** Each application you submit is added to a Google Sheet with a dashboard. Optional Gmail sync moves each one along (Received, Interview, Offer, Rejected) as replies come in.
-- **Drafts answers that sound like you.** Optional AI drafts for "Why do you want to work here?" and cover letters: specific, in plain first person, built from your real experience and checked for anything your profile doesn't support.
+- **Drafts answers that sound like you.** Optional AI drafts for application questions like "Why do you want to work here?": specific, in plain first person, built from your real experience and checked for anything your profile doesn't support.
 
 ## What it won't do
 
@@ -101,7 +101,7 @@ Everything here is on the **Profile** page. To get back to it, right-click the Z
 
 ## Optional: free AI drafts
 
-Zipply works without any AI. With it, Zipply also maps unusual form fields, drafts open-ended answers and cover letters, and suggests resume wording. It uses only free options.
+Zipply works without any AI. With it, Zipply also maps unusual form fields, drafts answers to application questions, and suggests resume wording. It uses only free options.
 
 1. Get a free key at [Google AI Studio](https://aistudio.google.com/apikey). Use a Google Cloud project **without billing**, so you can never be charged.
 2. On the Profile page, under **Connections**, paste it into **Gemini API key**.
@@ -172,7 +172,7 @@ The panel then lists every field:
 
 Click any row to jump to that field. Multi-step applications keep filling as you move through the steps.
 
-**Draft a cover letter** writes one from the posting and your profile. Copy it, or use **Insert into form** when the application has a cover letter box. When **Draft open-ended answers while filling** is on (under **Connections**), questions like "Why do you want to work here?" get a draft too. Drafts are marked **Draft**, and Zipply flags any claim it couldn't find in your profile.
+When **Draft open-ended answers while filling** is on (under **Connections**), application questions like "Why do you want to work here?" get a draft. Zipply doesn't write cover letters: a cover letter box is left for you. Drafts are marked **Draft**, and Zipply flags any claim it couldn't find in your profile.
 
 **If Zipply fills something wrong, just fix it.** It remembers your correction for that question on that site and uses it next time.
 

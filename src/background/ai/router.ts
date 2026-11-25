@@ -11,7 +11,7 @@ export type Tier = 'flash' | 'flashLite' | 'nano'
 
 /**
  * Which models a job may use, cheapest that does it well first.
- * - write: answers, cover letters, tailoring tips (quality matters)
+ * - write: answers to application questions, tailoring tips (quality matters)
  * - map: field labels to profile keys (no personal data)
  * - check: grounding pass on a draft
  * - private: anything with resume text or email content (on-device only)

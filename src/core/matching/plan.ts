@@ -63,7 +63,7 @@ export function resolveValue(
     return { ...base, action: 'fill', status: 'filled', value: key }
   }
   if (key === 'coverLetter') {
-    return { ...base, action: 'unresolved', status: 'skipped', reason: 'Cover letter: generate one from the panel' }
+    return { ...base, action: 'skip', status: 'skipped', reason: 'Cover letter: left for you' }
   }
   const value = valueFor(profile, key)
   if (!value) {

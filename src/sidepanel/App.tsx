@@ -11,7 +11,7 @@ import { continuesJob, mergePostingInto } from '@/core/jobContext'
 import { ResumeRanking } from '@/ui/ResumeRanking'
 import { sinceSummary } from './since'
 import { db, type UnloggedRow } from '@/lib/db'
-import { Button, Card, Chip, Dot, Icon, Input, Label, Logo, ScoreRing, Select, Spinner, TextArea, cx } from '@/ui/kit'
+import { Button, Card, Chip, Dot, Icon, Input, Label, Logo, ScoreRing, Select, Spinner, cx } from '@/ui/kit'
 import contentScript from '@/content/index.ts?script'
 import { scrubPersonal } from '@/content/capture'
 import { panelSkips } from '@/shared/excluded'
@@ -369,8 +369,6 @@ export function App() {
 
       {reports && <FieldList reports={reports} tabId={tab!.id!} />}
 
-      {posting && <CoverLetter tabId={tab!.id!} />}
-
       <LogRow tabId={tab!.id!} state={logState} onLogged={setLogState} queue={queue} hasPosting={Boolean(posting)} />
 
       {hasForm && <CaptureForm tabId={tab!.id!} frames={frames} host={tab?.url ? new URL(tab.url).hostname : 'page'} profile={profile} />}
@@ -685,54 +683,6 @@ function rank(r: FieldReport) {
   if (r.status === 'draft' || r.status === 'low') return 1
   if (r.status === 'skipped') return 2
   return 3
-}
-
-function CoverLetter({ tabId }: { tabId: number }) {
-  const [busy, setBusy] = useState(false)
-  const [text, setText] = useState('')
-  const [warnings, setWarnings] = useState<string[]>([])
-  const [note, setNote] = useState('')
-  if (!text)
-    return (
-      <Button variant="secondary" disabled={busy} onClick={async () => {
-        setBusy(true)
-        setNote('')
-        const r = await send<AiText | { error: string }>({ type: 'ai:cover', tabId })
-          .catch((e) => ({ error: e instanceof Error ? e.message : String(e) }))
-          .finally(() => setBusy(false))
-        if (isError(r)) setNote(r.error)
-        else {
-          setText(r.text)
-          setWarnings(r.warnings)
-        }
-      }}>
-        {busy ? <><Spinner /> Writing…</> : <><Icon name="pen" />Draft a cover letter</>}
-        {note && <span className="text-xs text-bad">{note}</span>}
-      </Button>
-    )
-  return (
-    <Card className="p-4">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-sm font-medium">Cover letter <span className="ml-1 text-xs text-warn">Draft</span></span>
-        <button className="text-xs text-muted hover:text-ink" onClick={() => setText('')}>Discard</button>
-      </div>
-      <TextArea value={text} onChange={(e) => setText(e.target.value)} rows={18} />
-      {warnings.length > 0 && <p className="mt-2 text-xs text-warn">Check these, they aren't in your profile: {warnings.join('; ')}</p>}
-      <div className="mt-2 flex gap-2">
-        <Button size="sm" onClick={() => navigator.clipboard.writeText(text).then(() => setNote('Copied'))}>Copy</Button>
-        <Button size="sm" onClick={async () => {
-          const known = (await tabState(tabId)).frames
-          const frames = known.length ? known : [{ frameId: 0 }]
-          for (const f of frames) {
-            const r = await sendToFrame<{ ok: boolean }>(tabId, f.frameId, { type: 'insert', text, target: 'cover-letter' }).catch(() => null)
-            if (r?.ok) return setNote('Inserted')
-          }
-          setNote('No cover letter box on this page')
-        }}>Insert into form</Button>
-        {note && <span className="self-center text-xs text-muted">{note}</span>}
-      </div>
-    </Card>
-  )
 }
 
 function LogRow({ tabId, state, onLogged, queue, hasPosting }: { tabId: number; state: LogResult | null; onLogged: (r: LogResult) => void; queue: number; hasPosting: boolean }) {

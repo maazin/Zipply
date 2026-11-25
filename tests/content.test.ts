@@ -363,6 +363,29 @@ describe('AI answers for questions that aren\'t standard', () => {
       chrome().mockImplementation(async (m: unknown) => (sent.push(m), {}))
     }
   }, 20000)
+
+  it('answers the questions but never writes a cover letter', async () => {
+    document.body.innerHTML = `<form>
+      <label>Why are you interested in Globex? <textarea name="why"></textarea></label>
+      <label>Cover letter <textarea name="cover"></textarea></label>
+      <label>Motivation letter (optional) <textarea name="motivation"></textarea></label>
+    </form>`
+    chrome().mockImplementation(fake)
+    try {
+      const reports = await fillPage(pickAdapter(new URL('https://careers.globex.com/apply'), document), { ...ctx(), autoDraft: true, aiReady: true }, document)
+      expect(val('textarea[name="why"]')).toMatch(/analytics team/)
+      expect(val('textarea[name="cover"]')).toBe('')
+      expect(val('textarea[name="motivation"]')).toBe('')
+      const asked = sent.filter((m) => (m as { type: string }).type === 'ai:answer').map((m) => (m as { question: string }).question)
+      expect(asked.some((q) => /letter/i.test(q))).toBe(false)
+      const cover = reports.find((r) => /^Cover letter/.test(r.label))!
+      expect(cover).toMatchObject({ status: 'skipped' })
+      expect(cover.askAi).toBeFalsy()
+      expect(await askField(cover.zid)).toMatchObject({ error: expect.any(String) })
+    } finally {
+      chrome().mockImplementation(async (m: unknown) => (sent.push(m), {}))
+    }
+  }, 20000)
 })
 
 describe('searchable dropdowns', () => {

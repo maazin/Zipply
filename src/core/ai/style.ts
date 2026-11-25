@@ -14,7 +14,7 @@ export const WRITING_RULES = `How to write it:
 
 Never use:
 - Openers and closers like "I am writing to", "I am excited/thrilled to", "I hope this", "Thank you for your time and consideration", "I look forward to hearing from you", "I would welcome the opportunity", "In conclusion", "In summary", "Overall,".
-- Cover-letter clichés: "I am confident that", "I believe I would be a great fit", "valuable asset", "eager to contribute", "make a meaningful impact", "drive impact", "I am particularly drawn to", "thrive", "skill set", "strong foundation", "equipped me with", "contribute to your team's success", "deeply", "invaluable".
+- Stock application phrases: "I am confident that", "I believe I would be a great fit", "valuable asset", "eager to contribute", "make a meaningful impact", "drive impact", "I am particularly drawn to", "thrive", "skill set", "strong foundation", "equipped me with", "contribute to your team's success", "deeply", "invaluable".
 - Filler words: passionate, leverage, utilize, delve, dynamic, fast-paced, synergy, cutting-edge, innovative, robust, seamless, spearheaded, tapestry, testament, journey, landscape, realm, honed, resonate(s), align(s) with my values, unique blend, proven track record, results-driven, detail-oriented, team player, go-getter, hit the ground running, wear many hats.
 - Chatbot habits: em dashes (—), "not only ... but also", lists of three adjectives, "Moreover/Furthermore/Additionally" to start a sentence, rhetorical questions, exclamation marks, restating the question, flattering the company, emojis, markdown, bullet points (unless asked), placeholders in [brackets].`
 
@@ -40,7 +40,7 @@ const TELLS: Tell[] = [
   { re: /(\*\*|^#+\s|^\s*[*-]\s)/m, label: 'markdown or bullets' },
   { re: /\b(as an AI|language model)\b/i, label: 'mentions of AI' },
   { re: /\b(I am|I'm) confident (that|in my)\b|\bI believe I (would|will|am) (be )?an? (great|strong|perfect|ideal|excellent) (fit|candidate|addition)\b/i, label: '"I am confident / great fit"' },
-  { re: /\b(valuable asset|eager to contribute|(meaningful|significant|lasting) impact|drive impact|particularly drawn to|thrive|skill ?set|strong foundation|equipped me (with|to)|contribute to (your|the) team'?s success|invaluable|welcome the opportunity)\b/i, label: 'cover-letter clichés (valuable asset, eager to contribute...)' },
+  { re: /\b(valuable asset|eager to contribute|(meaningful|significant|lasting) impact|drive impact|particularly drawn to|thrive|skill ?set|strong foundation|equipped me (with|to)|contribute to (your|the) team'?s success|invaluable|welcome the opportunity)\b/i, label: 'stock application phrases (valuable asset, eager to contribute...)' },
 ]
 
 /** Most sentences opening with "I" reads like a list of claims, not a letter. */

@@ -10,7 +10,7 @@ import { clearOldLimitMarks } from '@/lib/usage'
 import { db } from '@/lib/db'
 import { session } from '@/lib/store'
 import { aiReady } from './ai/router'
-import { chooseOption, coverLetter, draftAnswer, mapFields, tailoringTips } from './ai/tasks'
+import { chooseOption, draftAnswer, mapFields, tailoringTips } from './ai/tasks'
 import { getToken, NotConnectedError, SCOPES, signOut, userEmail } from './google'
 import { ensureSheet, NoSheetError, refreshApplied } from './sheets'
 import { flushQueue, queueSize } from './queue'
@@ -387,11 +387,6 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
       const res = await logJob(job)
       if (res.ok && res.appId) await setJob(msg.tabId, { ...job, loggedAppId: res.appId })
       return res
-    }
-    case 'ai:cover': {
-      const job = await getJob(msg.tabId)
-      if (!job) return { error: 'No job found on this page.' }
-      return (await coverLetter(job.posting, await getProfile())) ?? { error: "The AI couldn't write it just now. Try again in a minute; if it keeps failing, check your Gemini key on the Profile page." }
     }
     case 'ai:tips': {
       const job = await getJob(msg.tabId)

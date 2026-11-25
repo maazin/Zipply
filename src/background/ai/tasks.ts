@@ -4,12 +4,6 @@ import { PROFILE_KEYS } from '@/shared/profileKeys'
 import {
   answerPrompt,
   choicePrompt,
-  coverLetterPlanPrompt,
-  coverLetterPrompt,
-  frameLetter,
-  LETTER_WORDS,
-  letterExpandPrompt,
-  type LetterPlan,
   emailClassifyPrompt,
   fieldMapPrompt,
   groundingPrompt,
@@ -69,31 +63,6 @@ export async function chooseOption(question: string, options: string[], posting:
   if (!r) return null
   const i = Number(r.data.index)
   return { index: Number.isInteger(i) && i >= 0 && i < options.length ? i : -1, model: r.model }
-}
-
-const wordCount = (t: string) => t.split(/\s+/).filter(Boolean).length
-
-/**
- * Plan, write, clean up, and lengthen once if it came back short. The plan
- * picks the hook and the evidence first, so the letter argues something
- * specific instead of listing skills. Returns the letter with its greeting and
- * sign-off; only the body is checked against your profile.
- */
-export async function coverLetter(posting: Posting, profile: Profile): Promise<AiText | null> {
-  const p = coverLetterPlanPrompt(posting, profile)
-  const plan = (await runAiJson<LetterPlan>('write', p.system, p.prompt, p.schema))?.data
-  const usable = plan && typeof plan.hook === 'string' && Array.isArray(plan.matches) ? plan : null
-  const { system, prompt } = coverLetterPrompt(posting, profile, usable)
-  const r = await runAi('write', system, prompt)
-  if (!r) return null
-  let body = await polish(r.text, LETTER_WORDS.max + 40)
-  if (wordCount(body) < LETTER_WORDS.min - 50) {
-    const e = letterExpandPrompt(body, posting, profile)
-    const longer = await runAi('write', e.system, e.prompt)
-    const text = longer ? await polish(longer.text, LETTER_WORDS.max + 40) : ''
-    if (wordCount(text) > wordCount(body) && styleIssues(text).length <= styleIssues(body).length) body = text
-  }
-  return { text: frameLetter(body, posting, profile), warnings: await ground(body, profile), model: r.model }
 }
 
 export async function tailoringTips(posting: Posting, bullets: string, missing: string[]): Promise<AiText | null> {

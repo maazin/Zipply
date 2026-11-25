@@ -100,7 +100,6 @@ export type PageToBg =
   | { type: 'tab:state'; tabId: number }
   | { type: 'job:set'; tabId: number; job: JobContext }
   | { type: 'log:manual'; tabId: number }
-  | { type: 'ai:cover'; tabId: number }
   | { type: 'ai:tips'; tabId: number }
   | { type: 'google:connect' }
   | { type: 'sheet:create' }
@@ -127,7 +126,6 @@ export type PageToContent =
   | { type: 'scan' }
   | { type: 'fill'; resumeId: string | null }
   | { type: 'focus'; zid: string }
-  | { type: 'insert'; text: string; target: 'cover-letter' }
   | { type: 'stop' }
   /** "Ask AI" on one question in the panel. */
   | { type: 'ask'; zid: string }

@@ -89,7 +89,6 @@ const ICONS = {
   bolt: 'M13 2 4 14h7l-1 8 9-12h-7l1-8z',
   pause: 'M9 5v14M15 5v14',
   sparkle: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z',
-  pen: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
   sheet: 'M4 4h16v16H4zM4 10h16M4 15h16M10 4v16',
   flag: 'M4 22V4M4 4h12l-2 4 2 4H4',
 } as const

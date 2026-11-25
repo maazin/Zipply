@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { questionKind, styleIssues, tidy, WRITING_RULES } from '@/core/ai/style'
-import { answerPrompt, coverLetterPrompt, focus, tailoringPrompt } from '@/core/ai/prompts'
+import { answerPrompt, focus, tailoringPrompt } from '@/core/ai/prompts'
 import { profile, posting } from './helpers'
 
 const runAi = vi.fn()
 const runAiJson = vi.fn()
 vi.mock('@/background/ai/router', () => ({ runAi: (...a: unknown[]) => runAi(...a), runAiJson: (...a: unknown[]) => runAiJson(...a) }))
-const { polish, coverLetter } = await import('@/background/ai/tasks')
+const { polish } = await import('@/background/ai/tasks')
 
 const CHATBOT = `Dear Hiring Manager,
 
@@ -77,19 +77,6 @@ describe('writing prompts', () => {
     expect(story.prompt).toContain('Tell one real story')
   })
 
-  it('give the cover letter a real structure and length', () => {
-    const plan = { hook: 'They forecast clinic staffing; I built staffing reports at Acme', matches: [{ need: 'SQL', evidence: 'Weekly Tableau dashboards on SQL at Acme Corp' }], gap: '', firstMonths: 'The weekly ops reporting' }
-    const { system, prompt } = coverLetterPrompt(job, profile(), plan)
-    expect(system).toContain('hiring manager')
-    expect(prompt).toContain('four paragraphs, 300 to 380 words')
-    expect(prompt).toMatch(/1\. Opening.*2\. My strongest match.*3\. A second, different experience.*4\. Close/s)
-    expect(prompt).toContain('<plan>')
-    expect(prompt).toContain('Weekly Tableau dashboards')
-    expect(prompt).toContain('No stock lines')
-    // My name only goes on locally.
-    expect(prompt + system).not.toContain('Lovelace')
-  })
-
   it('ask for bullets hiring teams skim well', () => {
     expect(tailoringPrompt(job, '- Built dashboards', ['dbt']).prompt).toMatch(/strong past-tense verb.*under 25 words/s)
   })
@@ -117,37 +104,10 @@ describe('polish', () => {
   })
 })
 
-const para = (n: number) => Array.from({ length: n }, (_, i) => `At Acme Corp the ops team read report number ${i} every Monday, built in SQL and Tableau.`).join(' ')
-const BODY = [para(4), para(7), para(6), para(3)].join('\n\n')
-
-const letterJob = posting({ title: 'Data Analyst', company: 'Globex', description: 'Requirements:\n- SQL, Python and Tableau\nYou will build dashboards for operations.' })
-
-describe('cover letter', () => {
-  it('plans, writes, and frames it with a greeting and your name', async () => {
-    runAiJson.mockReset().mockResolvedValueOnce({ data: { hook: 'h', matches: [{ need: 'SQL', evidence: 'Acme' }], gap: '', firstMonths: 'f' }, model: 'm' }).mockResolvedValue({ data: { unsupported: [] }, model: 'm' })
-    runAi.mockReset().mockResolvedValueOnce({ text: `Dear Hiring Manager,\n\n${BODY}\n\nSincerely,\n[Your Name]`, model: 'flash' })
-    const p = profile()
-    const r = (await coverLetter(letterJob, p))!
-    expect(r.text.startsWith(`Dear ${letterJob.company} Hiring Team,\n\n`)).toBe(true)
-    expect(r.text.endsWith(`Best regards,\n${p.basics.firstName} ${p.basics.lastName}`)).toBe(true)
-    expect(r.text).not.toContain('[Your Name]')
-    expect(r.text.split('\n\n')).toHaveLength(6)
-    // The plan reached the writer.
-    expect(String(runAi.mock.calls[0][2])).toContain('<plan>')
-  })
-
-  it('lengthens a letter that came back short', async () => {
-    runAiJson.mockReset().mockResolvedValue({ data: { unsupported: [] }, model: 'm' })
-    runAi.mockReset().mockResolvedValueOnce({ text: para(5), model: 'flash' }).mockResolvedValueOnce({ text: BODY, model: 'flash' })
-    const r = (await coverLetter(letterJob, profile()))!
-    expect(runAi).toHaveBeenCalledTimes(2)
-    expect(String(runAi.mock.calls[1][2])).toMatch(/Bring it to 300 to 380 words/)
-    expect(r.text).toContain(para(7))
-  })
-
-  it('catches letters where nearly every sentence starts with "I"', () => {
-    const iLetter = Array.from({ length: 8 }, (_, i) => `I worked on project ${i} with SQL and Python.`).join(' ')
-    expect(styleIssues(iLetter)).toContain('too many sentences start with "I"')
-    expect(styleIssues('I am confident that I would be a valuable asset and eager to contribute.')).toEqual(expect.arrayContaining(['"I am confident / great fit"', 'cover-letter clichés (valuable asset, eager to contribute...)']))
+describe('style checks', () => {
+  it('catch drafts where nearly every sentence starts with "I"', () => {
+    const iDraft = Array.from({ length: 8 }, (_, i) => `I worked on project ${i} with SQL and Python.`).join(' ')
+    expect(styleIssues(iDraft)).toContain('too many sentences start with "I"')
+    expect(styleIssues('I am confident that I would be a valuable asset and eager to contribute.')).toEqual(expect.arrayContaining(['"I am confident / great fit"', 'stock application phrases (valuable asset, eager to contribute...)']))
   })
 })

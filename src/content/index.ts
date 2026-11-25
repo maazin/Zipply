@@ -9,8 +9,8 @@ import { isError, send } from '@/shared/messages'
 import { canonicalUrl } from '@/core/score/applied'
 import { pickAdapter, type Adapter } from './adapters'
 import { collectFields, findByZid } from './dom/collect'
-import { flash, setText } from './dom/setValue'
-import { askField, fillPage, lastReports, refreshMissing, tracked, watchAnswers } from './fill'
+import { flash } from './dom/setValue'
+import { askField, fillPage, lastReports, refreshMissing, watchAnswers } from './fill'
 import { genericPosting, mergePosting, postingFromJsonLd } from './posting'
 import { detectApplication } from './detect'
 import { sanitizeForm } from './capture'
@@ -264,14 +264,6 @@ function main() {
           const el = findByZid(msg.zid)
           if (!el) return { ok: false }
           flash(el)
-          return { ok: true }
-        }
-        case 'insert': {
-          const target = Array.from(tracked.values()).find((t) => /cover letter/i.test(t.c.desc.label) && t.c.desc.kind === 'textarea')
-          const el = (target?.c.el as HTMLElement | undefined) ?? collectFields(document).find((c) => /cover letter/i.test(c.desc.label) && c.desc.kind === 'textarea')?.el
-          if (!el) return { ok: false }
-          setText(el as HTMLElement, msg.text)
-          flash(el as HTMLElement)
           return { ok: true }
         }
         case 'capture':

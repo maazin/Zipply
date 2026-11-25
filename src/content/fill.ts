@@ -50,11 +50,13 @@ const PLACEHOLDER = /^\s*$|^[-–—\s]*(select|choose|pick|please (select|choos
 
 /** Questions never answered by AI. Whole words, so "managed" or "page" don't count as "age". */
 export const SENSITIVE_Q = /\b(salary|salaries|compensation|pay|pay rate|sponsor\w*|visa|authori[sz]ed|authori[sz]ation|citizen\w*|gender|race|ethnicity|ethnic|veteran|disabilit\w*|criminal|convicted|conviction|age|date of birth|birth|ssn|social security)\b/i
+/** AI answers application questions only; a cover letter box is left for you. */
+export const COVER_LETTER = /\b(cover ?letter|motivation letter|letter of (motivation|interest))\b/i
 
 /** How the AI may answer this field: write it, choose an option, or not at all (sensitive, or not a question). */
 export function askable(c: Collected): 'write' | 'choose' | null {
   const label = labelOf(c).trim()
-  if (!label || SENSITIVE_Q.test(label)) return null
+  if (!label || SENSITIVE_Q.test(label) || COVER_LETTER.test(label)) return null
   if (isQuestion(c)) return 'write'
   return CHOICE_KINDS.has(c.desc.kind) && label.split(/\s+/).length >= 2 ? 'choose' : null
 }
