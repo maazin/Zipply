@@ -11,7 +11,7 @@ import { continuesJob, mergePostingInto } from '@/core/jobContext'
 import { ResumeRanking } from '@/ui/ResumeRanking'
 import { sinceSummary } from './since'
 import { db, type UnloggedRow } from '@/lib/db'
-import { Button, Card, Chip, Dot, Empty, Input, Logo, Select, Spinner, TextArea, cx } from '@/ui/kit'
+import { Button, Card, Chip, Dot, Icon, Input, Label, Logo, ScoreRing, Select, Spinner, TextArea, cx } from '@/ui/kit'
 import contentScript from '@/content/index.ts?script'
 import { scrubPersonal } from '@/content/capture'
 import { panelSkips } from '@/shared/excluded'
@@ -300,7 +300,11 @@ export function App() {
   if (phase === 'unsupported')
     return (
       <Shell>
-        <Empty>Open a job application to get started.</Empty>
+        <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
+          <Logo size={44} />
+          <div className="text-[15px] font-semibold">Open a job to get started</div>
+          <p className="text-sm text-muted">On a posting, Zipply scores your fit. On an application, it fills the form and logs the job when you submit.</p>
+        </div>
       </Shell>
     )
   if (phase === 'permission')
@@ -327,17 +331,9 @@ export function App() {
 
   return (
     <Shell>
-      <header className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-[15px] font-semibold">{posting?.title || 'This page'}</div>
-          <div className="mt-0.5 flex items-center gap-2 text-[13px] text-muted">
-            <span className="truncate">{posting?.company || tab?.url && new URL(tab.url).hostname}</span>
-            {ats !== 'Other' && <Chip>{ats}</Chip>}
-          </div>
-        </div>
-      </header>
+      <JobHeader title={posting?.title || 'This page'} company={posting?.company || (tab?.url ? new URL(tab.url).hostname : '')} location={posting?.location ?? ''} ats={ats} />
 
-      {checks && verdict && <VerdictCard checks={checks} verdict={verdict} />}
+      {checks && verdict && <VerdictCard checks={checks} verdict={verdict} score={checks.thin || !match ? null : match.score} />}
 
       {checks && match && (
         <MatchCard checks={checks} match={match} resumeId={resumeId} onResume={setResumeId} tabId={tab!.id!} />
@@ -350,12 +346,12 @@ export function App() {
 
       <div className="flex flex-col gap-2">
         <div className="flex gap-2">
-          <Button variant="primary" size="lg" className="flex-1" onClick={fill} disabled={filling || (!hasForm && (!posting || armed))}>
-            {filling ? <><Spinner /> Filling…</> : hasForm ? 'Fill this page' : armed ? 'Will fill the application' : 'Fill the application when it opens'}
+          <Button variant="primary" size="lg" className="min-w-0 flex-1" onClick={fill} disabled={filling || (!hasForm && (!posting || armed))}>
+            {filling ? <><Spinner /> Filling…</> : <><Icon name="bolt" size={16} /><span className="truncate">{hasForm ? 'Fill this page' : armed ? 'Will fill the application' : 'Fill the application when it opens'}</span></>}
           </Button>
           {(filling || armed) && (
-            <Button size="lg" onClick={pause} title="Stop filling. Nothing more is filled, on this page or the next steps, until you press Fill.">
-              Pause
+            <Button size="lg" className="shrink-0" onClick={pause} title="Stop filling. Nothing more is filled, on this page or the next steps, until you press Fill.">
+              <Icon name="pause" size={15} />Pause
             </Button>
           )}
         </div>
@@ -394,10 +390,12 @@ function mergeReports(prev: FieldReport[] | null, next: FieldReport[], frameId: 
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex min-h-screen max-w-xl flex-col gap-4 px-4 py-4">
+    <div className="relative isolate mx-auto flex min-h-screen max-w-xl flex-col gap-4 px-4 py-4">
+      {/* A wash of the logo's colors behind the top of the panel. */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-44 bg-linear-to-b from-brand-from/12 via-brand-to/5 to-transparent" />
       <div className="flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-[13px] font-semibold tracking-tight text-muted">
-          <Logo size={18} />
+        <span className="flex items-center gap-2 text-sm font-bold tracking-tight">
+          <Logo size={22} />
           Zipply
         </span>
         <button aria-label="Profile and settings" title="Profile and settings" onClick={openProfile} className="rounded-md p-1 text-muted hover:bg-sunken hover:text-ink">
@@ -406,6 +404,26 @@ function Shell({ children }: { children: React.ReactNode }) {
       </div>
       {children}
     </div>
+  )
+}
+
+/** The job: a tile with the company's initial, the title, and where it is. */
+function JobHeader({ title, company, location, ats }: { title: string; company: string; location: string; ats: ScanResult['ats'] }) {
+  const initial = (company.replace(/^(the|www)\b\.?\s*/i, '').match(/[a-z0-9]/i)?.[0] ?? '?').toUpperCase()
+  return (
+    <header className="flex items-start gap-3">
+      <span aria-hidden className="grid size-11 shrink-0 place-items-center rounded-xl bg-linear-to-br from-brand-from to-brand-to text-lg font-bold text-white shadow-sm shadow-brand-to/25">
+        {initial}
+      </span>
+      <div className="min-w-0 flex-1">
+        <h1 className="line-clamp-2 text-base font-semibold leading-snug">{title}</h1>
+        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted">
+          {company && <span className="max-w-full truncate font-medium text-ink/80">{company}</span>}
+          {location && <><span aria-hidden className="text-faint">·</span><span className="max-w-full truncate">{location}</span></>}
+          {ats !== 'Other' && <Chip>{ats}</Chip>}
+        </div>
+      </div>
+    </header>
   )
 }
 
@@ -432,33 +450,41 @@ function Unlock({ onDone }: { onDone: () => void }) {
   )
 }
 
-const VERDICT_TONE = { Apply: 'text-ok', Maybe: 'text-warn', Skip: 'text-bad' } as const
+const VERDICT_TONE = { Apply: 'bg-ok/12 text-ok ring-ok/25', Maybe: 'bg-warn/12 text-warn ring-warn/25', Skip: 'bg-bad/12 text-bad ring-bad/25' } as const
 
-function VerdictCard({ checks, verdict }: { checks: ChecksResult; verdict: NonNullable<ReturnType<typeof computeVerdict>> }) {
+/** Should you apply: the match score as a ring, the verdict and why, and anything to watch for. */
+function VerdictCard({ checks, verdict, score }: { checks: ChecksResult; verdict: NonNullable<ReturnType<typeof computeVerdict>>; score: number | null }) {
   const [open, setOpen] = useState(false)
   const { applied, redFlags } = checks
   return (
     <Card className="p-4">
-      <button className="flex w-full items-baseline justify-between gap-3 text-left" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className={cx('text-xl font-semibold', VERDICT_TONE[verdict.verdict])}>{verdict.verdict}</span>
-        <span className="text-xs text-muted">{open ? 'Hide' : 'Details'}</span>
-      </button>
-      <p className="mt-0.5 text-sm text-muted">{verdict.reason}</p>
+      <div className="flex items-center gap-4">
+        <ScoreRing score={score} label="match" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className={cx('rounded-full px-2.5 py-0.5 text-sm font-semibold ring-1 ring-inset', VERDICT_TONE[verdict.verdict])}>{verdict.verdict}</span>
+            <button className="rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-sunken hover:text-ink" onClick={() => setOpen(!open)} aria-expanded={open}>
+              {open ? 'Hide' : 'Details'}
+            </button>
+          </div>
+          <p className="mt-1.5 text-[13px] leading-snug text-muted">{verdict.reason}</p>
+        </div>
+      </div>
 
       {appliedLine(applied) && (
-        <p className={cx('mt-3 flex items-center gap-2 text-sm', applied.alreadyApplied ? 'text-bad' : 'text-warn')}>
-          <Dot tone={applied.alreadyApplied ? 'bad' : 'warn'} /> {appliedLine(applied)!.text}
+        <p className={cx('mt-3 flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] font-medium', applied.alreadyApplied ? 'bg-bad/10 text-bad' : 'bg-warn/10 text-warn')}>
+          <Icon name="flag" /> {appliedLine(applied)!.text}
         </p>
       )}
 
       {redFlags.flags.length > 0 && (
         <div className="mt-3 border-t border-line pt-3">
-          <div className="text-xs font-medium text-muted">{redFlags.tier}</div>
-          <ul className="mt-1 flex flex-col gap-1">
+          <Label>{redFlags.tier}</Label>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
             {redFlags.flags.map((f) => (
-              <li key={f} className="flex items-center gap-2 text-[13px] text-warn"><Dot tone="warn" />{f}</li>
+              <Chip key={f} tone="warn"><Icon name="alert" size={12} />{f}</Chip>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
@@ -490,16 +516,13 @@ function MatchCard({ checks, match, resumeId, onResume, tabId }: { checks: Check
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-xs text-muted">Match score</div>
-          <div className="text-2xl font-semibold tabular-nums">{checks.thin ? '—' : match.score}</div>
+        <div className="min-w-0">
+          <Label>Your resume</Label>
+          <div className="mt-0.5 truncate text-sm font-medium">{match.tag || match.name}</div>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col items-end gap-1.5">
-          <span className="max-w-full truncate text-[13px] text-muted">{match.tag || match.name}</span>
-          <button onClick={() => setShowAts(!showAts)} aria-expanded={showAts}>
-            <Chip tone={gradeTone} title="Can an ATS read this resume?">ATS read: {match.ats.grade}</Chip>
-          </button>
-        </div>
+        <button className="shrink-0" onClick={() => setShowAts(!showAts)} aria-expanded={showAts}>
+          <Chip tone={gradeTone} title="Can an ATS read this resume?">ATS read: {match.ats.grade}</Chip>
+        </button>
       </div>
 
       {checks.thin && (
@@ -510,7 +533,7 @@ function MatchCard({ checks, match, resumeId, onResume, tabId }: { checks: Check
 
       {!checks.thin && checks.matches.length > 1 && (
         <div className="mt-3 border-t border-line pt-3">
-          <div className="mb-1.5 text-xs text-muted">Your resumes for this job</div>
+          <Label className="mb-1.5">Your resumes for this job</Label>
           <ResumeRanking comparison={checks.comparison} selected={resumeId} onSelect={onResume} />
         </div>
       )}
@@ -530,20 +553,20 @@ function MatchCard({ checks, match, resumeId, onResume, tabId }: { checks: Check
         <div className="mt-3 flex flex-col gap-2 border-t border-line pt-3">
           {match.matched.length > 0 && (
             <div data-testid="matched-keywords">
-              <div className="text-xs text-muted">Top matches ({match.matched.length} of {match.matched.length + match.canAdd.length + match.realGap.length} keywords)</div>
-              <div className="mt-1 flex flex-wrap gap-1">{match.matched.slice(0, TOP_MATCHES).map((k) => <Chip key={k} tone="ok">{k}</Chip>)}</div>
+              <Label>Top matches · {match.matched.length} of {match.matched.length + match.canAdd.length + match.realGap.length} keywords</Label>
+              <div className="mt-1.5 flex flex-wrap gap-1">{match.matched.slice(0, TOP_MATCHES).map((k) => <Chip key={k} tone="ok"><Icon name="check" size={11} />{k}</Chip>)}</div>
             </div>
           )}
           {match.canAdd.length > 0 && (
             <div>
-              <div className="text-xs text-muted">Can add (you have these)</div>
-              <div className="mt-1 flex flex-wrap gap-1">{match.canAdd.map((k) => <Chip key={k} tone="warn">{k}</Chip>)}</div>
+              <Label>Can add · you have these</Label>
+              <div className="mt-1.5 flex flex-wrap gap-1">{match.canAdd.map((k) => <Chip key={k} tone="warn">+ {k}</Chip>)}</div>
             </div>
           )}
           {match.realGap.length > 0 && (
             <div>
-              <div className="text-xs text-muted">Real gaps (not in your profile)</div>
-              <div className="mt-1 flex flex-wrap gap-1">{match.realGap.map((k) => <Chip key={k}>{k}</Chip>)}</div>
+              <Label>Real gaps · not in your profile</Label>
+              <div className="mt-1.5 flex flex-wrap gap-1">{match.realGap.map((k) => <Chip key={k} dashed>{k}</Chip>)}</div>
             </div>
           )}
         </div>
@@ -554,13 +577,13 @@ function MatchCard({ checks, match, resumeId, onResume, tabId }: { checks: Check
       </ul>
 
       {match.canAdd.length > 0 && !tips && (
-        <Button size="sm" variant="ghost" className="mt-2" disabled={busy} onClick={async () => {
+        <Button size="sm" variant="soft" className="mt-2" disabled={busy} onClick={async () => {
           setBusy(true)
           const r = await send<AiText | { error: string }>({ type: 'ai:tips', tabId })
           setBusy(false)
           setTips(isError(r) ? { text: r.error, warnings: [], model: '' } : r)
         }}>
-          {busy ? <Spinner /> : null} Suggest bullet rewrites
+          {busy ? <Spinner /> : <Icon name="sparkle" />} Suggest bullet rewrites
         </Button>
       )}
       {tips && <pre className="mt-2 whitespace-pre-wrap rounded-lg bg-sunken p-3 font-sans text-[13px]">{tips.text}</pre>}
@@ -568,7 +591,15 @@ function MatchCard({ checks, match, resumeId, onResume, tabId }: { checks: Check
   )
 }
 
-const STATUS_DOT = { filled: 'ok', low: 'warn', draft: 'warn', skipped: 'muted' } as const
+/** A field's state as an icon: filled, to check, or left for you. */
+function StatusIcon({ r }: { r: FieldReport }) {
+  const [name, tone] = r.missing ? (['alert', 'bg-bad/12 text-bad'] as const) : r.status === 'filled' ? (['check', 'bg-ok/12 text-ok'] as const) : r.status === 'skipped' ? (['minus', 'bg-sunken text-faint'] as const) : (['alert', 'bg-warn/12 text-warn'] as const)
+  return (
+    <span className={cx('mt-px grid size-5 shrink-0 place-items-center rounded-full', tone)}>
+      <Icon name={name} size={11} />
+    </span>
+  )
+}
 
 function FieldList({ reports, tabId }: { reports: FieldReport[]; tabId: number }) {
   const filled = reports.filter((r) => r.status === 'filled').length
@@ -577,10 +608,18 @@ function FieldList({ reports, tabId }: { reports: FieldReport[]; tabId: number }
   const sorted = [...reports].sort((a, b) => rank(a) - rank(b))
   return (
     <Card>
-      <div className="flex items-center gap-3 border-b border-line px-4 py-2.5 text-[13px]">
-        <span className="flex items-center gap-1.5"><Dot tone="ok" />{filled} filled</span>
-        <span className="flex items-center gap-1.5"><Dot tone="warn" />{check} to check</span>
-        {missing > 0 && <span className="flex items-center gap-1.5 text-bad"><Dot tone="bad" />{missing} required</span>}
+      <div className="border-b border-line px-4 pt-3 pb-2.5">
+        <div className="flex items-center gap-3 text-[13px]">
+          <span className="font-semibold">{filled} of {reports.length} filled</span>
+          <span className="ml-auto flex items-center gap-1.5 text-muted"><Dot tone="warn" />{check} to check</span>
+          {missing > 0 && <span className="flex items-center gap-1.5 text-bad"><Dot tone="bad" />{missing} required</span>}
+        </div>
+        {/* Filled, then to check, then required and empty; the rest is what's left for you. */}
+        <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-sunken" aria-hidden>
+          <span className="bg-ok" style={{ width: `${(filled / Math.max(1, reports.length)) * 100}%` }} />
+          <span className="bg-warn" style={{ width: `${(check / Math.max(1, reports.length)) * 100}%` }} />
+          <span className="bg-bad" style={{ width: `${(missing / Math.max(1, reports.length)) * 100}%` }} />
+        </div>
       </div>
       <ul className="max-h-[50vh] overflow-y-auto py-1">
         {sorted.map((r, i) => (
@@ -590,11 +629,11 @@ function FieldList({ reports, tabId }: { reports: FieldReport[]; tabId: number }
               onClick={() => r.zid && sendToFrame(tabId, r.frameId ?? 0, { type: 'focus', zid: r.zid }).catch(() => undefined)}
               className="flex min-w-0 flex-1 items-start gap-2.5 px-4 py-1.5 text-left hover:bg-sunken disabled:hover:bg-transparent"
             >
-              <span className="mt-1.5"><Dot tone={r.missing ? 'bad' : STATUS_DOT[r.status]} /></span>
+              <StatusIcon r={r} />
               <span className="min-w-0 flex-1">
                 <span className={cx('block truncate text-[13px]', r.missing && 'text-bad')}>
                   {r.label}
-                  {r.status === 'draft' && <span className="ml-1.5 text-xs text-warn">Draft</span>}
+                  {r.status === 'draft' && <span className="ml-1.5 rounded bg-warn/12 px-1 py-px text-[11px] font-medium text-warn">Draft</span>}
                 </span>
                 {(r.missing || r.reason || r.warnings?.length) && (
                   <span className="block text-xs text-muted">
@@ -617,10 +656,11 @@ function AskAi({ report, tabId }: { report: FieldReport; tabId: number }) {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
   return (
-    <div className="flex shrink-0 flex-col items-end px-3 py-1.5">
+    <div className="flex shrink-0 flex-col items-end px-3 py-1">
       <Button
         size="sm"
-        variant="ghost"
+        variant="soft"
+        className="rounded-full"
         disabled={busy}
         title="Have the AI answer this from your profile and the job. Check it before you submit."
         onClick={async () => {
@@ -633,7 +673,7 @@ function AskAi({ report, tabId }: { report: FieldReport; tabId: number }) {
           if (isError(r)) setNote(r.error)
         }}
       >
-        {busy ? <><Spinner /> Asking…</> : 'Ask AI'}
+        {busy ? <><Spinner /> Asking…</> : <><Icon name="sparkle" size={12} />Ask AI</>}
       </Button>
       {note && <span className="max-w-40 text-right text-xs text-bad">{note}</span>}
     </div>
@@ -666,7 +706,7 @@ function CoverLetter({ tabId }: { tabId: number }) {
           setWarnings(r.warnings)
         }
       }}>
-        {busy ? <><Spinner /> Writing…</> : 'Draft a cover letter'}
+        {busy ? <><Spinner /> Writing…</> : <><Icon name="pen" />Draft a cover letter</>}
         {note && <span className="text-xs text-bad">{note}</span>}
       </Button>
     )
@@ -698,14 +738,17 @@ function CoverLetter({ tabId }: { tabId: number }) {
 function LogRow({ tabId, state, onLogged, queue, hasPosting }: { tabId: number; state: LogResult | null; onLogged: (r: LogResult) => void; queue: number; hasPosting: boolean }) {
   const [busy, setBusy] = useState(false)
   return (
-    <div className="flex items-center justify-between gap-3 text-[13px]">
+    <div className={cx('flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-[13px]', state?.ok ? 'border-ok/25 bg-ok/8' : 'border-dashed border-line')}>
       {state?.ok ? (
-        <span className="flex items-center gap-2 text-muted">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" className="text-ok"><path d="M20 6 9 17l-5-5" /></svg>
+        <span className="flex items-center gap-2 font-medium text-ok">
+          <span className="grid size-5 place-items-center rounded-full bg-ok/15"><Icon name="check" size={12} /></span>
           {state.duplicate ? 'Already in your sheet' : state.queued ? 'Logged, waiting to sync' : 'Logged to your sheet'}
         </span>
       ) : (
-        <span className="text-muted">{state?.error ? <span className="text-bad">{state.error}</span> : 'Logged automatically when you submit'}</span>
+        <span className="flex min-w-0 items-center gap-2 text-muted">
+          <Icon name="sheet" className="text-faint" />
+          {state?.error ? <span className="text-bad">{state.error}</span> : 'Logged automatically when you submit'}
+        </span>
       )}
       {!state?.ok && hasPosting && (
         <Button size="sm" variant="ghost" disabled={busy} onClick={async () => {

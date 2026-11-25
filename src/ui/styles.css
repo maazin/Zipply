@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 /* Color means something or isn't used: green filled, amber check, red required
-   and empty. Everything else is neutral, plus one accent for the main button. */
+   and empty. Everything else is neutral, plus the logo's blue-to-violet for the
+   main button and Zipply's own marks. */
 :root {
   color-scheme: light dark;
 }
@@ -16,8 +17,11 @@
   --color-ink: light-dark(#18181b, #f4f4f5);
   --color-muted: light-dark(#6b6b76, #a1a1aa);
   --color-faint: light-dark(#9a9aa5, #71717a);
-  --color-accent: light-dark(#2457d6, #6b9bff);
+  --color-accent: light-dark(#3b5bf0, #8ea4ff);
   --color-accent-ink: light-dark(#ffffff, #0b1220);
+  /* The logo's gradient. */
+  --color-brand-from: #3d7bff;
+  --color-brand-to: #6a35f2;
   --color-ok: light-dark(#15803d, #4ade80);
   --color-warn: light-dark(#b45309, #fbbf24);
   --color-bad: light-dark(#c42121, #f87171);
