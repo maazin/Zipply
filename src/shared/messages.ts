@@ -1,8 +1,6 @@
 import type {
-  AnswerBankEntry,
   AppliedCheck,
   AtsName,
-  FieldKind,
   FieldReport,
   MatchResult,
   Posting,
@@ -40,7 +38,6 @@ export interface FrameInfo {
 
 export interface FillContext {
   profile: Profile
-  bank: AnswerBankEntry[]
   resume: { id: string; name: string; mime: string; data: string } | null
   threshold: number
   autoDraft: boolean
@@ -73,8 +70,6 @@ export interface AiText {
 export type ContentToBg =
   | { type: 'frame:status'; ats: AtsName; fields: number; confirmation: boolean; posting: Posting | null }
   | { type: 'fill:context'; resumeId: string | null }
-  | { type: 'answer:save'; label: string; answer: string; fieldKind: FieldKind; host: string; source: 'typed' | 'ai' | 'correction' }
-  | { type: 'answer:used'; id: string }
   | { type: 'ai:map'; fields: MapField[] }
   | { type: 'ai:answer'; question: string; maxWords: number }
   /** A multiple-choice question: which option you'd pick (-1 when unsure). */

@@ -1,7 +1,6 @@
-import type { AnswerBankEntry, FieldDescriptor, FillSource, Profile } from '@/shared/types'
+import type { FieldDescriptor, FillSource, Profile } from '@/shared/types'
 import { KEY_DEF, KEY_DEFS, valueFor, type ProfileKey } from '@/shared/profileKeys'
 import { findBadWord, normalizeLabel } from '@/shared/text'
-import { findAnswer } from '../answerBank'
 import { hungarian } from './hungarian'
 import { pickOption } from './options'
 import { scoreField } from './scorer'
@@ -28,8 +27,6 @@ export interface PlanItem {
   checked?: boolean
   confidence: number
   source: FillSource
-  /** Answer bank entry used, when source is 'bank'. */
-  bankId?: string
   action: 'fill' | 'skip' | 'unresolved'
   status: 'filled' | 'low' | 'skipped'
   reason?: string
@@ -39,11 +36,8 @@ export interface PlanOptions {
   threshold: number
   /** Adapter-provided mappings, trusted as-is. */
   explicit?: Map<string, ProfileKey>
-  bank?: AnswerBankEntry[]
   /** Keys the matcher should not assign (e.g. handled by repeating sections). */
   excludeKeys?: ProfileKey[]
-  /** The page's host, for corrections you made on this site. */
-  host?: string
 }
 
 const CHOICE = new Set(['select', 'combobox', 'radio', 'checkbox-group'])
@@ -112,40 +106,13 @@ export function resolveValue(
 
 /**
  * Map every field on the page to a profile value. Order: adapter mappings, then
- * strong rule matches and the answer bank, then weaker rule matches. Anything
+ * rule matches above the threshold. Anything
  * left is "unresolved" and may go to the AI mapper (labels only).
  */
-/** A plan item from a saved answer. */
-function fromBank(f: FieldDescriptor, hit: { entry: AnswerBankEntry; similarity: number }, strong: boolean, reason?: string): PlanItem {
-  const base = { zid: f.zid, confidence: hit.similarity, source: 'bank' as const, bankId: hit.entry.id, reason }
-  if (f.kind === 'checkbox')
-    return { ...base, action: 'fill', status: strong ? 'filled' : 'low', checked: /^(yes|true|checked|on)$/i.test(hit.entry.answer), value: hit.entry.answer }
-  if (CHOICE.has(f.kind)) {
-    const pick = pickOption(f.options, hit.entry.answer)
-    return pick.index >= 0
-      ? { ...base, action: 'fill', status: strong ? 'filled' : 'low', value: f.options[pick.index], optionIndex: pick.index }
-      : { ...base, confidence: 0, bankId: undefined, action: 'unresolved', status: 'skipped', reason: 'Saved answer no longer matches the options' }
-  }
-  return { ...base, action: 'fill', status: strong ? 'filled' : 'low', value: hit.entry.answer }
-}
-
 export function planFields(fields: FieldDescriptor[], profile: Profile, opts: PlanOptions): PlanItem[] {
   const explicit = opts.explicit ?? new Map()
-  const bank = opts.bank ?? []
   const plans = new Map<string, PlanItem>()
   const used = new Set<ProfileKey>(opts.excludeKeys ?? [])
-
-  // Your corrections on this site win over everything else.
-  if (opts.host) {
-    for (const f of fields) {
-      if (f.kind === 'file') continue
-      const fix = findAnswer(f.label || f.ariaLabel || f.placeholder, f.kind, bank, 0.95, opts.host)
-      if (fix) {
-        const item = fromBank(f, fix, true, 'Your fix from last time on this site')
-        if (item.action === 'fill') plans.set(f.zid, item)
-      }
-    }
-  }
 
   for (const f of fields) {
     if (plans.has(f.zid)) continue
@@ -169,12 +136,9 @@ export function planFields(fields: FieldDescriptor[], profile: Profile, opts: Pl
     const col = assignment[i]
     const key = col >= 0 ? keys[col] : undefined
     const score = key ? scores[i].get(key) ?? 0 : 0
-    const hit = f.kind === 'file' ? null : findAnswer(f.label || f.ariaLabel || f.placeholder, f.kind, bank)
 
     if (key && score >= 0.9) {
       plans.set(f.zid, resolveValue(f, key, profile, score, 'rules', true))
-    } else if (hit) {
-      plans.set(f.zid, fromBank(f, hit, hit.similarity >= 0.95))
     } else if (key && score >= opts.threshold) {
       plans.set(f.zid, resolveValue(f, key, profile, score, 'rules', false))
     } else if (f.kind === 'checkbox' && findBadWord(normalizeLabel(f.label), ATTESTATION_TERMS)) {

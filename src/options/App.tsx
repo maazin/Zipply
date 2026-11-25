@@ -10,7 +10,6 @@ import { Education } from './sections/Education'
 import { SkillsLinks } from './sections/SkillsLinks'
 import { Resumes } from './sections/Resumes'
 import { StandardAnswers } from './sections/StandardAnswers'
-import { AnswerBank } from './sections/AnswerBank'
 import { Filters } from './sections/Filters'
 import { Writing } from './sections/Writing'
 import { Connections } from './sections/Connections'
@@ -27,7 +26,6 @@ const NAV = [
   ['skills', 'Skills and links'],
   ['resumes', 'Resumes'],
   ['answers', 'Standard answers'],
-  ['bank', 'Answer bank'],
   ['filters', 'Filters'],
   ['writing', 'Writing samples'],
   ['connections', 'Connections'],
@@ -141,7 +139,6 @@ export function App() {
         <SkillsLinks profile={profile} update={update} />
         <Resumes />
         <StandardAnswers profile={profile} update={update} />
-        <AnswerBank />
         <Filters profile={profile} update={update} />
         <Writing profile={profile} update={update} />
         <Connections />

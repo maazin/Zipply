@@ -5,7 +5,7 @@ import { continuesJob, JOB_TTL, mergePostingInto, samePosting } from '@/core/job
 import { appliedLine, canonicalUrl, checkApplied } from '@/core/score/applied'
 import type { ContentToBg, FillContext, FrameInfo, JobContext, PageToBg, PageToContent } from '@/shared/messages'
 import { LockedError } from '@/lib/keys'
-import { getAnswerBank, getProfile, getResume, getSettings, listResumes, saveAnswer, markAnswerUsed, updateSettings } from '@/lib/repo'
+import { getProfile, getResume, getSettings, listResumes, updateSettings } from '@/lib/repo'
 import { clearOldLimitMarks } from '@/lib/usage'
 import { db } from '@/lib/db'
 import { session } from '@/lib/store'
@@ -217,13 +217,12 @@ chrome.runtime.onMessage.addListener((msg: (ContentToBg | PageToBg) & { target?:
 })
 
 async function fillContext(tabId: number | undefined, resumeId: string | null): Promise<FillContext> {
-  const [profile, bank, settings, metas] = await Promise.all([getProfile(), getAnswerBank(), getSettings(), listResumes()])
+  const [profile, settings, metas] = await Promise.all([getProfile(), getSettings(), listResumes()])
   const job = tabId != null ? await getJob(tabId) : null
   const id = resumeId ?? job?.resumeId ?? metas.find((m) => m.isDefault)?.id ?? metas[0]?.id ?? null
   const r = id ? await getResume(id) : null
   return {
     profile,
-    bank,
     resume: r ? { id: r.id, name: r.name, mime: r.mime, data: r.data } : null,
     threshold: settings.fillThreshold,
     autoDraft: settings.autoDraft,
@@ -333,12 +332,6 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
       else await setJob(tabId, { ...job, posting: mergePostingInto(job.posting, p), filledAt: Date.now(), loggedAppId: undefined, lastUrl })
       return null
     }
-    case 'answer:save':
-      await saveAnswer({ label: msg.label, answer: msg.answer, fieldKind: msg.fieldKind, host: msg.host, source: msg.source })
-      return { ok: true }
-    case 'answer:used':
-      await markAnswerUsed(msg.id)
-      return { ok: true }
     case 'ai:map':
       return { mappings: await mapFields(msg.fields) }
     case 'ai:answer': {

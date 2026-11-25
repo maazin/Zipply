@@ -1,4 +1,4 @@
-// Fill one page: adapter mappings, repeating sections, rules + answer bank, then
+// Fill one page: adapter mappings, repeating sections, profile rules, then
 // the AI field mapper for leftovers (labels only), then AI answers for the
 // questions left: picks for multiple-choice ones, drafts for written ones.
 // Never clicks Next or Submit.
@@ -7,7 +7,6 @@ import type { AiText, FillContext } from '@/shared/messages'
 import { isError, send } from '@/shared/messages'
 import { KEY_DEF, type ProfileKey } from '@/shared/profileKeys'
 import { planFields, resolveValue, type PlanItem } from '@/core/matching/plan'
-import { shouldRemember, shouldRememberCorrection } from '@/core/answerBank'
 import { collectFields, findByZid, readValue, type Collected } from './dom/collect'
 import { comboboxOptions, humanPause, sleep, setCheckboxGroup, setChecked, setCombobox, setFile, setRadio, setSelect, setText } from './dom/setValue'
 import type { Adapter } from './adapters'
@@ -26,12 +25,9 @@ export interface Tracked {
   c: Collected
   key?: ProfileKey
   source: FillSource
-  draft?: string
-  /** What Zipply put there, to tell your corrections apart. */
-  filled?: string
 }
 
-/** Fields we filled or left for the user, by zid. Used for answer-bank capture and report refresh. */
+/** Fields we filled or left for the user, by zid. Used to refresh the report. */
 export const tracked = new Map<string, Tracked>()
 export let lastReports: FieldReport[] = []
 
@@ -152,7 +148,7 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
   const plan = planFields(
     all.map((c) => c.desc),
     ctx.profile,
-    { threshold: ctx.threshold, explicit, bank: ctx.bank, excludeKeys: repeat?.excludeKeys, host: location.hostname },
+    { threshold: ctx.threshold, explicit, excludeKeys: repeat?.excludeKeys },
   )
 
   // AI field mapper for leftovers: labels and options only, never values.
@@ -193,8 +189,7 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
     }
     if (item.action === 'fill') {
       const r = await apply(c, item, ctx)
-      tracked.set(c.desc.zid, { c, key: item.key, source: item.source, filled: readValue(c) })
-      if (item.bankId && r.status !== 'skipped') send({ type: 'answer:used', id: item.bankId }).catch(() => undefined)
+      tracked.set(c.desc.zid, { c, key: item.key, source: item.source })
       reports.push(report(c, r.status, item.source, { key: item.key, confidence: item.confidence, reason: r.reason ?? item.reason }))
       await humanPause()
       continue
@@ -202,7 +197,7 @@ export async function fillPage(adapter: Adapter, ctx: FillContext, doc: Document
 
     const kind = item.action === 'unresolved' && !answered(c) ? askable(c) : null
     const room = kind === 'write' ? count('write') < MAX_DRAFTS_PER_PAGE : count('choose') < MAX_CHOICES_PER_PAGE
-    tracked.set(c.desc.zid, { c, key: item.key, source: 'none', filled: readValue(c) })
+    tracked.set(c.desc.zid, { c, key: item.key, source: 'none' })
     if (kind && room && ctx.autoDraft && ctx.aiReady && !drafting.has(c.desc.zid)) {
       toAsk.push({ c, kind, at: reports.length })
       reports.push(report(c, 'skipped', 'none', { reason: kind === 'write' ? 'Writing a draft…' : 'Choosing an answer…' }))
@@ -245,7 +240,7 @@ async function askOne(c: Collected, kind: Ask['kind']): Promise<FieldReport> {
     else if (c.desc.kind === 'radio' && c.members) setRadio(c.members, pick.i)
     else if (c.desc.kind === 'checkbox-group' && c.members) setCheckboxGroup(c.members, pick.i)
     else if (!(await setCombobox(el, pick.text))) return report(c, 'skipped', 'none', { reason: `Couldn't pick "${pick.text}"`, askAi: true })
-    tracked.set(c.desc.zid, { c, source: 'ai-draft', draft: readValue(c), filled: readValue(c) })
+    tracked.set(c.desc.zid, { c, source: 'ai-draft' })
     return report(c, 'draft', 'ai-draft', { reason: `Picked by ${ai.model}. Check it before you submit.` })
   }
 
@@ -255,7 +250,7 @@ async function askOne(c: Collected, kind: Ask['kind']): Promise<FieldReport> {
   if (answered(c)) return report(c, 'skipped', 'none', { reason: 'You answered it' })
   if (!ai || isError(ai) || !ai.text) return report(c, 'skipped', 'none', { reason: ai && isError(ai) ? ai.error : 'No draft this time', askAi: true })
   setText(c.el as HTMLElement, ai.text)
-  tracked.set(c.desc.zid, { c, source: 'ai-draft', draft: ai.text })
+  tracked.set(c.desc.zid, { c, source: 'ai-draft' })
   return report(c, 'draft', 'ai-draft', { reason: `Draft by ${ai.model}. Edit before you submit.`, warnings: ai.warnings })
 }
 
@@ -292,52 +287,9 @@ async function askAll(items: Ask[], reports: FieldReport[], doc: Document, onEac
   }
 }
 
-// ---------- answer bank capture ----------
-
-function remember(t: Tracked, source: 'typed' | 'ai') {
-  const value = readValue(t.c)
-  const label = t.c.desc.label || t.c.desc.ariaLabel || t.c.desc.placeholder
-  if (!shouldRemember(label, t.key, value, t.c.desc.kind)) return
-  send({ type: 'answer:save', label, answer: value, fieldKind: t.c.desc.kind, host: location.hostname, source }).catch(() => undefined)
-}
-
-/** You changed a field Zipply mapped to your profile: remember your version for this site. */
-function rememberCorrection(t: Tracked) {
-  const value = readValue(t.c)
-  const label = t.c.desc.label || t.c.desc.ariaLabel || t.c.desc.placeholder
-  if (value === t.filled || !shouldRememberCorrection(label, t.key, value, t.c.desc.kind)) return
-  t.filled = value
-  send({ type: 'answer:save', label, answer: value, fieldKind: t.c.desc.kind, host: location.hostname, source: 'correction' }).catch(() => undefined)
-}
-
-/** Anything you answer by hand is saved with its label, so the next form fills it too. */
-export function watchAnswers(doc: Document = document, onChange?: () => void) {
-  const handler = (e: Event) => {
-    // The field itself, also when it sits in a component's shadow root.
-    const target = (e.composedPath()[0] ?? e.target) as HTMLElement | null
-    const zid = target?.getAttribute?.('data-zipply-id') ?? target?.getAttribute?.('data-zipply-group')
-    const t = zid ? tracked.get(zid) : undefined
-    if (t && t.key) rememberCorrection(t)
-    else if (t) {
-      const value = readValue(t.c)
-      remember(t, t.draft && value === t.draft ? 'ai' : 'typed')
-    }
-    onChange?.()
-  }
-  doc.addEventListener('change', handler, true)
+/** Tell the panel when you change a field, so the "still empty" marks stay true. */
+export function watchChanges(doc: Document = document, onChange: () => void) {
+  doc.addEventListener('change', onChange, true)
   // "change" never leaves a shadow root; leaving the field does.
-  doc.addEventListener('focusout', (e) => (e.composedPath()[0] as Node | undefined)?.getRootNode() instanceof ShadowRoot && handler(e), true)
-  // Drafts you keep as-is are saved when you submit.
-  const onSubmit = () => {
-    for (const t of tracked.values()) if (t.draft && readValue(t.c)) remember(t, readValue(t.c) === t.draft ? 'ai' : 'typed')
-  }
-  doc.addEventListener('submit', onSubmit, true)
-  doc.addEventListener(
-    'click',
-    (e) => {
-      const b = (e.target as HTMLElement | null)?.closest?.('button, input[type="submit"]')
-      if (b && /submit|send application|apply/i.test((b.textContent ?? '') + ' ' + ((b as HTMLInputElement).value ?? ''))) onSubmit()
-    },
-    true,
-  )
+  doc.addEventListener('focusout', (e) => (e.composedPath()[0] as Node | undefined)?.getRootNode() instanceof ShadowRoot && onChange(), true)
 }

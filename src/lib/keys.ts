@@ -100,14 +100,12 @@ export async function lock(): Promise<void> {
 /** Re-encrypt everything under a new key. */
 async function rekey(oldKey: CryptoKey, newKey: CryptoKey) {
   const re = async <T extends Sealed>(row: T): Promise<T> => ({ ...row, ...(await seal(newKey, await open(oldKey, row))) })
-  const [vault, resumes, answers] = await Promise.all([db.vault.toArray(), db.resumes.toArray(), db.answers.toArray()])
+  const [vault, resumes] = await Promise.all([db.vault.toArray(), db.resumes.toArray()])
   const v2 = await Promise.all(vault.map(re))
   const r2 = await Promise.all(resumes.map(re))
-  const a2 = await Promise.all(answers.map(re))
-  await db.transaction('rw', db.vault, db.resumes, db.answers, async () => {
+  await db.transaction('rw', db.vault, db.resumes, async () => {
     await db.vault.bulkPut(v2)
     await db.resumes.bulkPut(r2)
-    await db.answers.bulkPut(a2)
   })
 }
 

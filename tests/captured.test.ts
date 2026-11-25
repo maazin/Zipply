@@ -22,7 +22,7 @@ function load(html: string): URL {
   return new URL(meta.startsWith('http') ? meta : `https://captured.example${meta}`)
 }
 
-const ctx = (): FillContext => ({ profile: profile(), bank: [], resume: null, threshold: 0.75, autoDraft: false, aiReady: false, posting: null })
+const ctx = (): FillContext => ({ profile: profile(), resume: null, threshold: 0.75, autoDraft: false, aiReady: false, posting: null })
 
 async function check(html: string) {
   const url = load(html)

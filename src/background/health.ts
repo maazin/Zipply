@@ -91,11 +91,10 @@ export async function healthChecks(): Promise<HealthCheck[]> {
 /** Everything useful for debugging, nothing personal: no profile, no companies, no email content. */
 export async function diagnostics(): Promise<object> {
   const s = await getSettings()
-  const [applied, unlogged, unmatched, answers, resumes, queue] = await Promise.all([
+  const [applied, unlogged, unmatched, resumes, queue] = await Promise.all([
     db.applied.count(),
     db.unlogged.count(),
     db.unmatched.count(),
-    db.answers.count(),
     db.resumes.count(),
     db.queue.orderBy('createdAt').toArray(),
   ])
@@ -118,7 +117,7 @@ export async function diagnostics(): Promise<object> {
       encrypted: s.encrypted,
     },
     health: await healthChecks(),
-    counts: { applied, unlogged, unmatched, answers, resumes, queued: queue.length },
+    counts: { applied, unlogged, unmatched, resumes, queued: queue.length },
     queue: queue.map((q) => ({ op: q.op, attempts: q.attempts, lastError: scrub(q.lastError), ageHours: Math.round((Date.now() - q.createdAt) / 3_600_000) })),
     errors: (await recentErrors()).map((e) => ({ at: new Date(e.at).toISOString(), where: e.where, message: e.message, ...(e.count ? { count: e.count } : {}) })),
   }

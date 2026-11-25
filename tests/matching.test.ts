@@ -123,38 +123,9 @@ describe('planFields', () => {
     )
     expect(plan[0].value).toBe('Decline To Self Identify')
   })
-  it('reuses saved answers from the answer bank', () => {
-    const plan = planFields([field({ zid: 'q', kind: 'textarea', label: 'Why are you interested in Globex?' })], p, {
-      threshold: 0.75,
-      bank: [
-        { id: '1', label: 'Why are you interested in Globex?', labelNorm: '', answer: 'Because…', fieldKind: 'textarea', host: 'x', source: 'typed', updatedAt: 1, uses: 0 },
-      ],
-    })
-    expect(plan[0]).toMatchObject({ source: 'bank', value: 'Because…' })
-  })
   it('leaves unknown questions unresolved', () => {
     const plan = planFields([field({ zid: 'q', kind: 'textarea', label: 'Describe a time you disagreed with a teammate' })], p, { threshold: 0.75 })
     expect(plan[0].action).toBe('unresolved')
   })
 })
 
-describe('corrections you make are reused on the same site', () => {
-  const p = profile()
-  const fix = (o: Partial<import('@/shared/types').AnswerBankEntry>) => ({
-    id: 'c1', label: 'Phone', labelNorm: 'phone', answer: '+1 813 555 0199', fieldKind: 'tel' as const, host: 'careers.acme.com', source: 'correction' as const, updatedAt: 1, uses: 0, ...o,
-  })
-  it('wins over the profile value on that host', () => {
-    const plan = planFields([field({ zid: 'p', label: 'Phone', kind: 'tel' })], p, { threshold: 0.75, bank: [fix({})], host: 'careers.acme.com' })
-    expect(plan[0]).toMatchObject({ value: '+1 813 555 0199', source: 'bank', reason: 'Your fix from last time on this site' })
-  })
-  it('is ignored on other hosts', () => {
-    const plan = planFields([field({ zid: 'p', label: 'Phone', kind: 'tel' })], p, { threshold: 0.75, bank: [fix({})], host: 'jobs.other.com' })
-    expect(plan[0].value).toBe('(813) 555-0100')
-  })
-  it('also overrides an adapter mapping', () => {
-    const plan = planFields([field({ zid: 'p', label: 'Phone', kind: 'tel' })], p, {
-      threshold: 0.75, bank: [fix({})], host: 'careers.acme.com', explicit: new Map([['p', 'phone']]),
-    })
-    expect(plan[0].value).toBe('+1 813 555 0199')
-  })
-})

@@ -174,8 +174,6 @@ Click any row to jump to that field. Multi-step applications keep filling as you
 
 When **Draft open-ended answers while filling** is on (under **Connections**), application questions like "Why do you want to work here?" get a draft. Zipply doesn't write cover letters: a cover letter box is left for you. Drafts are marked **Draft**, and Zipply flags any claim it couldn't find in your profile.
 
-**If Zipply fills something wrong, just fix it.** It remembers your correction for that question on that site and uses it next time.
-
 ### Submit
 
 Review the form and submit it yourself. When the site shows its "thank you" page, Zipply logs the application to your sheet. If it misses one, press **Log this job** in the panel.
@@ -234,7 +232,7 @@ Zipply notices the new build and reloads itself within about a minute, or as soo
 
 ## Privacy and security
 
-- **Your data stays with you.** Your profile, resumes, saved answers and Gemini key are stored in your browser and encrypted with AES-GCM. With a passphrase, the encryption key is derived from it and kept only in memory.
+- **Your data stays with you.** Your profile, resumes and Gemini key are stored in your browser and encrypted with AES-GCM. With a passphrase, the encryption key is derived from it and kept only in memory.
 - **What it does on websites.** Zipply runs on every site because applications can be anywhere. On each page it does one quick check for signs of a job application. Pages that don't look like one get nothing more: no reading of forms and no messages sent. Gmail, Google Docs, Drive, Calendar, Meet, YouTube and Google sign-in pages are skipped entirely.
 - **What the AI sees.** Gemini's free tier may use prompts to improve Google's products, so nothing personal goes to it. Field mapping sends labels only. Drafts use a profile with your name, contact details, address, salary and demographic answers removed. Your resume text and email content go only to Gemini Nano on your own computer, unless you turn on **Let Gemini's free API classify unclear emails**.
 - **What Google access it has.** Zipply can only see the files it created in your Drive. Gmail access is read-only, and only the resulting status and date are kept from each email. Sign-in tokens are handled by Chrome and never stored by Zipply.
@@ -248,9 +246,8 @@ Zipply notices the new build and reloads itself within about a minute, or as soo
 
 1. **Site adapters.** Workday, iCIMS, Greenhouse, Lever, Ashby and Oracle Recruiting Cloud each have a module that knows their form markup, including Workday's repeating work-history and education sections and Oracle's yes/no buttons and dropdowns.
 2. **Rules for any other form.** Each field is compared with each profile item using the field's autocomplete hint, label, aria-label, name, id, placeholder and nearby text, plus a dictionary of synonyms ("Surname" means "Last name"). All fields are matched at once, so two fields can't both claim your phone number.
-3. **Your answer bank.** Questions you've answered before are reused, and your corrections on a site come first.
-4. **AI mapping** for anything still unclear. It sees labels only and can answer only with a profile field name; your values are filled in locally.
-5. **Drafts** for open-ended questions, if you turned on AI. They lead with the answer, give one real example tied to what the posting asks for, and avoid stock phrases. A second check flags anything your profile doesn't support.
+3. **AI mapping** for anything still unclear. It sees labels only and can answer only with a profile field name; your values are filled in locally.
+4. **Drafts** for open-ended questions, if you turned on AI. They lead with the answer, give one real example tied to what the posting asks for, and avoid stock phrases. A second check flags anything your profile doesn't support.
 
 Values are entered the way a person types them, so React, Angular and Workday's validation all register them.
 

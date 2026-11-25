@@ -52,7 +52,7 @@ export function Privacy({ onChanged }: { onChanged: () => void }) {
   }
 
   return (
-    <Section id="privacy" title="Privacy and data" intro="Your profile, resumes and answer bank are encrypted in this browser (AES-GCM). There's no Zipply server.">
+    <Section id="privacy" title="Privacy and data" intro="Your profile and resumes are encrypted in this browser (AES-GCM). There's no Zipply server.">
       <div className="flex flex-col gap-6">
         <div>
           <h3 className="text-sm font-semibold">Passphrase</h3>
@@ -75,7 +75,7 @@ export function Privacy({ onChanged }: { onChanged: () => void }) {
 
         <div className="border-t border-line pt-6">
           <h3 className="text-sm font-semibold">Backup</h3>
-          <p className="mt-1 text-xs text-muted">One readable JSON file with your profile, answer bank and resumes. Not encrypted, so keep it somewhere safe. Your Gemini key isn't included.</p>
+          <p className="mt-1 text-xs text-muted">One readable JSON file with your profile and resumes. Not encrypted, so keep it somewhere safe. Your Gemini key isn't included.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button onClick={doExport}>Export profile</Button>
             <label className="inline-flex cursor-pointer">
@@ -87,7 +87,7 @@ export function Privacy({ onChanged }: { onChanged: () => void }) {
 
         <div className="border-t border-line pt-6">
           <h3 className="text-sm font-semibold text-bad">Delete everything</h3>
-          <p className="mt-1 text-xs text-muted">Removes your profile, resumes, answer bank, keys, settings and local caches from this browser. Your Google Sheet stays in your Drive.</p>
+          <p className="mt-1 text-xs text-muted">Removes your profile, resumes, keys, settings and local caches from this browser. Your Google Sheet stays in your Drive.</p>
           {!sure ? (
             <Button variant="danger" className="mt-3" onClick={() => setSure(true)}>Delete all data…</Button>
           ) : (

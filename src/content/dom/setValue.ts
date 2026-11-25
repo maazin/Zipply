@@ -133,7 +133,7 @@ export async function setCombobox(el: HTMLElement, value: string, opts: { boolea
   }
 
   realClick(target)
-  // The whole list first. Typing the saved answer filters it, and other wording
+  // The whole list first. Typing your answer filters it, and other wording
   // ("I don't" against "I do not") then left nothing to pick.
   let choice = await waitFor(() => {
     const o = listed()

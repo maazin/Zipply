@@ -1,9 +1,7 @@
 // High-level storage API shared by the service worker and extension pages.
-// Profile, resumes, the answer bank and the Gemini key are encrypted.
-import type { AnswerBankEntry, Profile, ResumeContent, ResumeMeta, Settings, StoredResume } from '@/shared/types'
+// Profile, resumes and the Gemini key are encrypted.
+import type { Profile, ResumeContent, ResumeMeta, Settings, StoredResume } from '@/shared/types'
 import { APPLY_AT, DEFAULT_SETTINGS, MAYBE_AT, SCORE_VERSION, emptyProfile, uid } from '@/shared/defaults'
-import { normalizeLabel } from '@/shared/text'
-import { upsertAnswer } from '@/core/answerBank'
 import { db } from './db'
 import { getKey, resetKeys } from './keys'
 import { open, seal } from './crypto'
@@ -138,42 +136,6 @@ export async function deleteResume(id: string): Promise<void> {
   }
 }
 
-// ---------- Answer bank ----------
-
-export async function getAnswerBank(): Promise<AnswerBankEntry[]> {
-  const key = await getKey()
-  const rows = await db.answers.orderBy('updatedAt').reverse().toArray()
-  return Promise.all(
-    rows.map(async ({ iv, ct, ...rest }) => ({ ...rest, answer: await open<string>(key, { iv, ct }) })),
-  )
-}
-
-async function putAnswer(e: AnswerBankEntry) {
-  const { answer, ...rest } = e
-  await db.answers.put({ ...rest, ...(await seal(await getKey(), answer)) })
-}
-
-export async function saveAnswer(entry: Omit<AnswerBankEntry, 'id' | 'labelNorm' | 'uses' | 'updatedAt'> & { id?: string }): Promise<void> {
-  const bank = await getAnswerBank()
-  const next = upsertAnswer(bank, { ...entry, id: entry.id ?? uid(8) })
-  const labelNorm = normalizeLabel(entry.label)
-  const changed = next.find((e) => e.labelNorm === labelNorm && (e.source === 'correction') === (entry.source === 'correction') && (entry.source !== 'correction' || e.host === entry.host))
-  if (changed) await putAnswer(changed)
-}
-
-export async function updateAnswer(e: AnswerBankEntry): Promise<void> {
-  await putAnswer({ ...e, labelNorm: normalizeLabel(e.label), updatedAt: Date.now() })
-}
-
-export async function markAnswerUsed(id: string): Promise<void> {
-  const row = await db.answers.get(id)
-  if (row) await db.answers.update(id, { uses: row.uses + 1 })
-}
-
-export async function deleteAnswer(id: string): Promise<void> {
-  await db.answers.delete(id)
-}
-
 // ---------- Export / import / delete ----------
 
 export interface ExportFile {
@@ -181,7 +143,6 @@ export interface ExportFile {
   version: 1
   exportedAt: string
   profile: Profile
-  answerBank: AnswerBankEntry[]
   resumes: StoredResume[]
 }
 
@@ -197,7 +158,6 @@ export async function exportAll(): Promise<ExportFile> {
     version: 1,
     exportedAt: new Date().toISOString(),
     profile: await getProfile(),
-    answerBank: await getAnswerBank(),
     resumes,
   }
 }
@@ -205,7 +165,6 @@ export async function exportAll(): Promise<ExportFile> {
 export async function importAll(file: ExportFile): Promise<void> {
   if (file?.format !== 'zipply-profile') throw new Error('This is not a Zipply profile file.')
   await saveProfile(migrate(file.profile))
-  for (const e of file.answerBank ?? []) await putAnswer({ ...e, labelNorm: normalizeLabel(e.label) })
   for (const r of (file.resumes ?? []).slice(0, MAX_RESUMES)) {
     await db.resumes.delete(r.id)
     await saveResume(r)

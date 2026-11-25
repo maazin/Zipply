@@ -144,19 +144,6 @@ export interface StoredResume extends ResumeMeta {
   data: string
 }
 
-export interface AnswerBankEntry {
-  id: string
-  label: string
-  labelNorm: string
-  answer: string
-  fieldKind: FieldKind
-  host: string
-  /** typed: you answered it; ai: a draft you kept; correction: you fixed what Zipply filled, on this host only. */
-  source: 'typed' | 'ai' | 'correction'
-  updatedAt: number
-  uses: number
-}
-
 // ---------- Form fields ----------
 
 export type FieldKind =
@@ -196,7 +183,7 @@ export interface FieldDescriptor {
 
 export type FieldStatus = 'filled' | 'low' | 'draft' | 'skipped'
 
-export type FillSource = 'adapter' | 'rules' | 'bank' | 'ai-map' | 'ai-draft' | 'file' | 'none'
+export type FillSource = 'adapter' | 'rules' | 'ai-map' | 'ai-draft' | 'file' | 'none'
 
 export interface FieldReport {
   zid: string

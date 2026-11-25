@@ -90,7 +90,6 @@ test('Profile page renders and imports a profile', async () => {
         skills: ['Python', 'SQL'],
         answers: { workAuthorized: 'Yes', needsSponsorship: 'No' },
       },
-      answerBank: [],
       resumes: [],
     }),
   )
@@ -473,7 +472,7 @@ test('Shows a match score on a LinkedIn job and its card', async () => {
   await page.close()
 })
 
-test('Remembers a fix you made, for that site', async () => {
+test("Doesn't store what you type: the next fill uses your profile again", async () => {
   const page = await context.newPage()
   const fill = () =>
     worker.evaluate(async () => {
@@ -491,7 +490,7 @@ test('Remembers a fix you made, for that site', async () => {
   await page.reload()
   await page.waitForTimeout(1500)
   await fill()
-  await expect(page.locator('#phone')).toHaveValue('+1 813 555 0199')
+  await expect(page.locator('#phone')).toHaveValue('(813) 555-0100')
   await page.close()
 })
 

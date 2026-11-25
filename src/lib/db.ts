@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { AppliedEntry, FieldKind, QueueItem, StatusEvent, UnmatchedEmail } from '@/shared/types'
+import type { AppliedEntry, QueueItem, StatusEvent, UnmatchedEmail } from '@/shared/types'
 import type { JobContext } from '@/shared/messages'
 import type { Sealed } from './crypto'
 
@@ -15,17 +15,6 @@ export interface ResumeRow extends Sealed {
   size: number
   addedAt: number
   isDefault: boolean
-}
-
-export interface AnswerRow extends Sealed {
-  id: string
-  label: string
-  labelNorm: string
-  fieldKind: FieldKind
-  host: string
-  source: 'typed' | 'ai' | 'correction'
-  updatedAt: number
-  uses: number
 }
 
 export interface UsageRow {
@@ -50,7 +39,6 @@ export interface UnloggedRow {
 export class ZipplyDB extends Dexie {
   vault!: EntityTable<VaultRow, 'name'>
   resumes!: EntityTable<ResumeRow, 'id'>
-  answers!: EntityTable<AnswerRow, 'id'>
   applied!: EntityTable<AppliedEntry, 'key'>
   queue!: EntityTable<QueueItem, 'id'>
   emails!: EntityTable<EmailRow, 'id'>
@@ -73,6 +61,8 @@ export class ZipplyDB extends Dexie {
       unmatched: 'messageId, at',
     })
     this.version(2).stores({ unlogged: 'id, at' })
+    // The answer bank is gone; this drops its table and everything in it.
+    this.version(3).stores({ answers: null })
   }
 }
 

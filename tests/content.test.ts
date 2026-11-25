@@ -30,7 +30,7 @@ function load(name: string, url: string) {
 function ctx(): FillContext {
   const p = profile()
   p.work.unshift({ id: 'w0', title: 'Analyst', company: 'Initech', location: 'Remote', start: '2025-09', end: '', current: true, description: 'Pipelines' })
-  return { profile: p, bank: [], resume: null, threshold: 0.75, autoDraft: false, aiReady: false, posting: null }
+  return { profile: p, resume: null, threshold: 0.75, autoDraft: false, aiReady: false, posting: null }
 }
 
 const val = (sel: string) => (document.querySelector(sel) as HTMLInputElement).value
@@ -336,7 +336,7 @@ describe('AI answers for questions that aren\'t standard', () => {
       // Sponsorship is yours to answer: the AI is never asked.
       const asked = sent.filter((m) => (m as { type: string }).type === 'ai:choose').map((m) => (m as { question: string }).question)
       expect(asked.some((q) => /visa/i.test(q))).toBe(false)
-      // (It's filled from your saved answer instead.)
+      // (It's filled from your standard answer instead.)
       expect(reports.find((r) => /visa/i.test(r.label))?.source).not.toBe('ai-draft')
       // Placeholders aren't offered as answers.
       const heard = sent.find((m) => (m as { type: string; question?: string }).type === 'ai:choose' && /hear/.test((m as { question: string }).question)) as { options: string[] }
@@ -389,7 +389,7 @@ describe('AI answers for questions that aren\'t standard', () => {
 })
 
 describe('searchable dropdowns', () => {
-  it('picks from the whole list, so other wording than your saved answer still matches', async () => {
+  it('picks from the whole list, so other wording than your standard answer still matches', async () => {
     const { setCombobox } = await import('@/content/dom/setValue')
     // Like React-Select: typing shows only options containing what you typed.
     document.body.innerHTML = `<div id="dd"><input role="combobox" aria-controls="list"></div><div id="list" role="listbox"></div>`

@@ -34,7 +34,7 @@ test('screenshots', async () => {
     education: [{ id: 'e1', school: 'University of South Florida', degree: "Bachelor's", major: 'Computer Science', start: '2022-08', end: '2026-05', gpa: '' }],
     skills: ['Python', 'SQL', 'Tableau', 'Excel', 'Pandas'],
     answers: { workAuthorized: 'Yes', needsSponsorship: 'No', relocate: 'Yes' },
-  }, answerBank: [], resumes: [] }))
+  }, resumes: [] }))
   await opts.locator('#privacy input[type=file]').setInputFiles(file)
   await expect(opts.getByText('Imported.')).toBeVisible()
   await opts.reload()

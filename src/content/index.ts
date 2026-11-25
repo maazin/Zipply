@@ -10,7 +10,7 @@ import { canonicalUrl } from '@/core/score/applied'
 import { pickAdapter, type Adapter } from './adapters'
 import { collectFields, findByZid } from './dom/collect'
 import { flash } from './dom/setValue'
-import { askField, fillPage, lastReports, refreshMissing, watchAnswers } from './fill'
+import { askField, fillPage, lastReports, refreshMissing, watchChanges } from './fill'
 import { genericPosting, mergePosting, postingFromJsonLd } from './posting'
 import { detectApplication } from './detect'
 import { sanitizeForm } from './capture'
@@ -237,7 +237,7 @@ function main() {
   observer.observe(document.documentElement, { childList: true, subtree: true })
 
   let changeTimer: ReturnType<typeof setTimeout> | undefined
-  watchAnswers(document, () => {
+  watchChanges(document, () => {
     clearTimeout(changeTimer)
     changeTimer = setTimeout(() => {
       if (!lastReports.length) return
