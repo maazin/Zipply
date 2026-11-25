@@ -59,6 +59,22 @@ describe('following one job from the posting to the application', () => {
     expect(continuesJob({ ...prev, loggedAppId: 'abc123' }, { ...a })).toBe(true)
   })
 
+  it("off an application form, shows the page itself, not the last job in the tab", () => {
+    const now = Date.now()
+    const prev = { posting: linkedin, at: now }
+    const off = { form: false }
+    // A page Zipply can't read, or one with a thin made-up posting (a search page).
+    expect(continuesJob(prev, null, now, off)).toBe(false)
+    expect(continuesJob(prev, posting({ title: 'Job search', company: 'Amazon', description: 'Results', url: 'https://www.amazon.jobs/en/search' }), now, off)).toBe(false)
+    // Same title at another company is another job.
+    expect(continuesJob(prev, posting({ title: 'Data Analyst', company: 'Initech', description: '', url: 'https://initech.com/jobs/1' }), now, off)).toBe(false)
+    // The same job, read again (a reload, or the same posting elsewhere at that company), still is.
+    expect(continuesJob(prev, { ...linkedin }, now, off)).toBe(true)
+    expect(continuesJob(prev, posting({ title: 'Data Analyst', company: 'Globex', description: '', url: 'https://globex.com/careers/data-analyst' }), now, off)).toBe(true)
+    // On a form (the default), a page with nothing readable continues the job, as before.
+    expect(continuesJob(prev, null, now)).toBe(true)
+  })
+
   it('lets an hours-old job go', () => {
     const form = posting({ title: '', company: '', description: '', url: 'https://example.com/apply' })
     expect(continuesJob({ posting: linkedin, at: Date.now() - JOB_TTL - 1 }, form)).toBe(false)

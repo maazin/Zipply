@@ -14,6 +14,7 @@ import { askField, fillPage, lastReports, refreshMissing, tracked, watchAnswers 
 import { genericPosting, mergePosting, postingFromJsonLd } from './posting'
 import { detectApplication } from './detect'
 import { sanitizeForm } from './capture'
+import { amazonApplications, isAmazonApplications } from './adapters/amazon'
 import { showApplied, showSideTab, watchSideTab } from './sideTab'
 import { clearStale, decorateCards, handshakeApplications, isHandshakeApplications, isLinkedInApplications, isListingHost, linkedinApplications, listingPosting, pillFor, placePill, siteFor, titleFor, type ListingScore } from './listings'
 
@@ -91,7 +92,13 @@ function main() {
     const listing = site ? listingPosting(site, document, url) : null
     // A listing still loading: wait, rather than take the page's own heading ("Jobs").
     if (site && !listing) return null
-    const value = mergePosting(listing?.url ?? location.href, listing, postingFromJsonLd(document), await adapter.posting?.(document, url), genericPosting(document))
+    const ld = postingFromJsonLd(document)
+    const own = await adapter.posting?.(document, url)
+    const generic = genericPosting(document)
+    // Only the page's heading to go on, no job description and no form (a search
+    // page, a home page): that's not a job, so the panel shows the page itself.
+    if (!listing && !ld && !own?.title && !own?.company && !generic.description && fieldCount() === 0) return null
+    const value = mergePosting(listing?.url ?? location.href, listing, ld, own, generic)
     if (!value.title && !value.company && !value.description) return null
     if (!site) posting = { url: key, value }
     return value
@@ -114,15 +121,18 @@ function main() {
 
   /** A job description page with no form: tell the service worker, once per page, for the "Apply" that follows. */
   let seenJob = ''
-  function noteJobPage() {
-    if (window !== window.top || siteFor(new URL(location.href))) return
+  async function noteJobPage() {
+    const url = new URL(location.href)
+    if (window !== window.top || siteFor(url)) return
     const key = canonicalUrl(location.href)
     if (seenJob === key) return
-    const p = postingFromJsonLd(document)
-    if (!p || (!p.title && !p.company) || (p.description ?? '').length < 200) return
+    // Structured data, else a reader for this site's own postings (Amazon has no structured data).
+    const own = adapter.name !== 'Other' ? await Promise.resolve(adapter.posting?.(document, url)).catch(() => null) : null
+    const p = mergePosting(location.href, postingFromJsonLd(document), own)
+    if (seenJob === key || (!p.title && !p.company) || p.description.length < 200) return
     seenJob = key
     void showSideTab('job')
-    const posting = mergePosting(location.href, p)
+    const posting = p
     send({ type: 'job:seen', posting }).catch(() => undefined)
     lookupApplied(posting)
   }
@@ -137,7 +147,7 @@ function main() {
     // or you filled an application in this tab.
     const confirmation = (adapter.name !== 'Other' || filledHere || Boolean(autoFill())) && adapter.isConfirmation(document, new URL(location.href))
     if (!confirmation && !checkActive()) {
-      noteJobPage()
+      void noteJobPage()
       if (reported) {
         reported = false
         lastStatus = ''
@@ -303,6 +313,8 @@ function main() {
     if (isHandshakeApplications(url)) return reportApplied(handshakeApplications(document))
     // LinkedIn's Easy Apply has no confirmation page either; its Job tracker lists what you applied to.
     if (isLinkedInApplications(url)) return reportApplied(linkedinApplications(document))
+    // So does your Applications page on amazon.jobs.
+    if (isAmazonApplications(url)) return reportApplied(amazonApplications(document))
     const site = siteFor(url)
     if (!site) return
     const p = listingPosting(site, document, url)

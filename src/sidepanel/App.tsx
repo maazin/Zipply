@@ -92,7 +92,17 @@ export function App() {
   const [error, setError] = useState('')
   const [nonce, setNonce] = useState(0)
 
+  // Each load (a new page, tab or job) outdates the ones before it: a slow
+  // scan of the last page mustn't land after the current one.
+  const loadSeq = useRef(0)
+  /** The load already re-run once because the page had something new to read. */
+  const reread = useRef(-1)
+  const postingRef = useRef<Posting | null>(null)
+  postingRef.current = posting
+
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current
+    const stale = () => seq !== loadSeq.current
     setError('')
     setReports(null)
     setChecks(null)
@@ -105,13 +115,21 @@ export function App() {
     const t = await activeTab()
     setTab(t)
     // Sites Zipply skips (YouTube, Gmail, Docs…) stay untouched here too.
-    if (!t?.id || panelSkips(t.url ?? '')) return setPhase('unsupported')
+    // A page Zipply can't read shows nothing of the page before it.
+    const nothing = (next: Phase) => {
+      setPosting(null)
+      setFrames([])
+      setPhase(next)
+    }
+    if (!t?.id || panelSkips(t.url ?? '')) return nothing('unsupported')
     const frameIds = await ensureInjected(t.id)
-    if (!frameIds) return setPhase('permission')
+    if (stale()) return
+    if (!frameIds) return nothing('permission')
     const scan = await scanFrames(t.id, frameIds)
+    const state = await tabState(t.id)
+    if (stale()) return
     setFrames(scan.frames)
     setAts(scan.ats)
-    const state = await tabState(t.id)
     setQueue(state.queue)
     setArmed(state.auto)
     // On the application form, keep the job you came from (its description,
@@ -119,12 +137,14 @@ export function App() {
     const job = state.job
     // The "thank you" page after a submit is still that job.
     const confirmed = scan.frames.some((f) => f.scan?.confirmation)
-    const current = job && (confirmed || continuesJob(job, scan.posting)) ? mergePostingInto(job.posting, scan.posting) : scan.posting
+    const form = scan.frames.some((f) => (f.scan?.fields ?? 0) > 0)
+    const current = job && (confirmed || continuesJob(job, scan.posting, Date.now(), { form })) ? mergePostingInto(job.posting, scan.posting) : scan.posting
     setPosting(current)
     if (job?.loggedAppId && current && job.posting.url === current.url) setLogState({ ok: true, appId: job.loggedAppId })
     setPhase('ready')
     if (current) {
       const c = await runChecks(current, p)
+      if (stale()) return
       setChecks(c)
       setResumeId(c.best?.resumeId ?? rs.find((r) => r.isDefault)?.id ?? rs[0]?.id ?? null)
     } else setResumeId(rs.find((r) => r.isDefault)?.id ?? rs[0]?.id ?? null)
@@ -142,6 +162,12 @@ export function App() {
     setFrames(scan.frames)
     if (scan.ats !== 'Other') setAts(scan.ats)
     setArmed((await tabState(tabId)).auto)
+    // Nothing was readable at first (a page still loading, or its form only now
+    // showing): read the job again now that there is something.
+    if (!postingRef.current && reread.current !== loadSeq.current && (scan.posting || scan.frames.some((f) => (f.scan?.fields ?? 0) > 0))) {
+      reread.current = loadSeq.current
+      setNonce((n) => n + 1)
+    }
   }, [])
 
   // Follow the active tab.

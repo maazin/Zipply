@@ -52,11 +52,20 @@ export interface JobSoFar {
  * of its own (an application form). No for a different posting with its own
  * description, a different job on the same site, a new site after you
  * already filled a form, any other posting once this one is in your sheet, or
- * when the job you were on is hours old.
+ * when the job you were on is hours old. Off an application form (`page.form`
+ * false) only the same job continues.
  */
-export function continuesJob(prev: JobSoFar, next: Posting | null, now = Date.now()): boolean {
-  if (!next) return true
+export function continuesJob(prev: JobSoFar, next: Posting | null, now = Date.now(), page: { form: boolean } = { form: true }): boolean {
   const a = prev.posting
+  // A page with no application form only shows the job when it is that job: an
+  // unreadable or unrelated page shows itself, not the last job in the tab.
+  if (!page.form) {
+    if (!next) return false
+    if (samePosting(a, next)) return true
+    const sameCompany = normalizeCompany(a.company) === normalizeCompany(next.company)
+    return Boolean(sameCompany && ((a.jobId && a.jobId === next.jobId) || titlesMatch(a.title, next.title)))
+  }
+  if (!next) return true
   if (samePosting(a, next)) return true
   // Submitted and logged: whatever you open next is another application.
   if (prev.loggedAppId) return false

@@ -926,6 +926,61 @@ test("Scores and logs jobs on LinkedIn's newer layout", async () => {
   await context.unroute('https://www.linkedin.com/jobs-tracker/**')
 })
 
+test('Reads Amazon jobs, shows only the page in view, and logs your Amazon applications', async () => {
+  const applied = () =>
+    worker.evaluate(
+      () =>
+        new Promise<{ company: string; title: string; dateApplied: string; ats: string }[]>((res) => {
+          const r = indexedDB.open('zipply')
+          r.onsuccess = () => {
+            const q = r.result.transaction('applied').objectStore('applied').getAll()
+            q.onsuccess = () => res(q.result)
+          }
+        }),
+    )
+  await context.route('https://www.amazon.jobs/**', (r) => {
+    const path = new URL(r.request().url()).pathname
+    if (/\/jobs\/\d+/.test(path)) return r.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'amazon-job.html'), 'utf8') })
+    // Dated today: applications from before the first one logged here are left out.
+    const day = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    if (/\/applicant\/?$/.test(path)) return r.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'amazon-applications.html'), 'utf8').replace('Applied: Nov 24, 2026', `Applied: ${day}`) })
+    return r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Job search | Amazon.jobs</title><h1>Find jobs</h1><p>Search results load here.</p>' })
+  })
+  const page = await context.newPage()
+  await page.goto('https://www.amazon.jobs/en/jobs/10386857/software-engineer')
+  // A posting with no structured data still gets the Zipply tab and becomes the tab's job.
+  await expect(page.locator('zipply-tab')).toHaveCount(1, { timeout: 10_000 })
+  await expect.poll(async () => (await jobOf('https://www.amazon.jobs/*'))?.posting.title, { timeout: 10_000 }).toBe('Software Engineer')
+  expect((await jobOf('https://www.amazon.jobs/*'))!.posting.company).toBe('Amazon')
+
+  const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'https://www.amazon.jobs/*' }))[0].id!)
+  const panel = await context.newPage()
+  await panel.goto(`chrome-extension://${extId}/src/sidepanel/index.html?tabId=${tabId}`)
+  await expect(panel.getByText('Software Engineer', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
+  await expect(panel.getByText('Amazon', { exact: true }).first()).toBeVisible()
+
+  // Off to a page with no job: the panel shows that page, not the last job.
+  await page.goto('https://www.amazon.jobs/en/search?base_query=sde')
+  await expect(panel.getByText('This page', { exact: true })).toBeVisible({ timeout: 10_000 })
+  await expect(panel.getByText('Software Engineer', { exact: true })).toHaveCount(0)
+  await panel.close()
+
+  // Your Applications page logs those the sheet doesn't have, once each, as Amazon's.
+  await page.goto('https://www.amazon.jobs/en-US/applicant')
+  const titles = async () => (await applied()).map((a) => `${a.company}: ${a.title}`)
+  await expect.poll(titles, { timeout: 15_000 }).toContain('Amazon: Software Development Engineer, Early Career - 2027 (US)')
+  await page.reload()
+  await page.waitForTimeout(2500)
+  const all = await applied()
+  const sde = all.filter((a) => a.title === 'Software Development Engineer, Early Career - 2027 (US)')
+  expect(sde).toHaveLength(1)
+  expect(sde[0]).toMatchObject({ company: 'Amazon', dateApplied: await worker.evaluate(() => new Date().toLocaleDateString('en-CA')), ats: 'Amazon' })
+  // From before you started tracking: left out.
+  expect(all.map((a) => a.title)).not.toContain('Data Engineer')
+  await page.close()
+  await context.unroute('https://www.amazon.jobs/**')
+})
+
 test('Fills a SmartRecruiters form whose fields are inside web components', async () => {
   await context.route('https://jobs.smartrecruiters.com/**', (r) => r.fulfill({ contentType: 'text/html', body: readFileSync(join(FIX, 'smartrecruiters.html'), 'utf8') }))
   await context.route('https://api.smartrecruiters.com/**', (r) =>

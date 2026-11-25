@@ -319,7 +319,7 @@ function sectionText(root: Element, start: RegExp, stop: RegExp): string {
 
 /** Sites with listings, whatever page you start on (the address changes as you browse). */
 export function isListingHost(url: URL): boolean {
-  return /(^|\.)(linkedin|indeed|joinhandshake)\.com$/.test(url.hostname)
+  return /(^|\.)(linkedin|indeed|joinhandshake)\.com$|(^|\.)amazon\.jobs$/.test(url.hostname)
 }
 
 export function siteFor(url: URL): ListingSite | null {

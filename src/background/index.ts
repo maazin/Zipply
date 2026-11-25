@@ -266,7 +266,7 @@ async function handle(msg: ContentToBg | PageToBg, sender: chrome.runtime.Messag
       // Scored the way the panel scores it, from the panel's own pick when it has one.
       const tabJob = tabId != null ? await getJob(tabId) : null
       const host = new URL(sender.url ?? 'about:blank').hostname
-      const ats: AtsName = /(^|\.)joinhandshake\.com$/.test(host) ? 'Handshake' : /(^|\.)linkedin\.com$/.test(host) ? 'LinkedIn' : 'Other'
+      const ats: AtsName = /(^|\.)joinhandshake\.com$/.test(host) ? 'Handshake' : /(^|\.)linkedin\.com$/.test(host) ? 'LinkedIn' : /(^|\.)amazon\.jobs$/.test(host) ? 'Amazon' : 'Other'
       return logApplied(msg.jobs, ats, async (p) => {
         if (tabJob?.match && tabJob.posting.jobId === p.jobId) return tabJob
         if (!p.description) return {}
