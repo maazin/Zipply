@@ -1,10 +1,11 @@
 // One router makes every AI call and keeps a daily count per model. Writing goes
-// Flash → Flash-Lite → Nano → you. It never retries into a paid tier (there is none).
+// Flash → Flash-Lite → Nano → you; a model that's only busy gets one more try
+// first. It never retries into a paid tier (there is none).
 import { getGeminiKey, getSettings } from '@/lib/repo'
 import { nanoPrompt, nanoStatus, type NanoStatus } from '@/lib/nano'
 import { bumpUsage as bump, isSpent, markSpent, usageCount } from '@/lib/usage'
 import { logError } from '@/lib/errlog'
-import { geminiGenerate, QuotaError } from './gemini'
+import { geminiGenerate, isBusy, QuotaError } from './gemini'
 
 export type Tier = 'flash' | 'flashLite' | 'nano'
 
@@ -76,6 +77,19 @@ export interface AiResult {
 const resting = new Map<string, number>()
 /** Wait out a per-minute limit when it's this short, rather than give up. */
 const MAX_WAIT_MS = 30_000
+/** A busy model ("high demand") often answers a moment later: one more try after this long. */
+export const BUSY_RETRY_MS = 2000
+
+/** One Gemini call, tried again once when Gemini is only busy. */
+async function generate(req: Parameters<typeof geminiGenerate>[0]): Promise<string> {
+  try {
+    return await geminiGenerate(req)
+  } catch (e) {
+    if (!isBusy(e)) throw e
+    await new Promise((r) => setTimeout(r, BUSY_RETRY_MS))
+    return geminiGenerate(req)
+  }
+}
 
 /**
  * Run a job down its chain. Returns null when every model is unavailable or
@@ -105,7 +119,7 @@ export async function runAi(job: Job, system: string, prompt: string, schema?: o
           continue
         }
         await bump(model)
-        const text = await geminiGenerate({ apiKey, model, system, prompt, schema, temperature: job === 'write' ? 0.75 : 0.1 })
+        const text = await generate({ apiKey, model, system, prompt, schema, temperature: job === 'write' ? 0.75 : 0.1 })
         if (!accept(text)) continue
         return { text, model }
       } catch (e) {

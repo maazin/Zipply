@@ -55,7 +55,7 @@ export const PHRASES: { status: AppStatus; phrases: string[] }[] = [
   },
   {
     status: 'Assessment',
-    phrases: ['online assessment', 'coding challenge', 'complete your assessment', 'take-home', 'hackerrank', 'codility', 'codesignal', 'assessment invitation'],
+    phrases: ['online assessment', 'online assessments', 'series of assessments', 'complete the assessments', 'aptitude test', 'coding challenge', 'complete your assessment', 'take-home', 'hackerrank', 'codility', 'codesignal', 'assessment invitation'],
   },
   {
     status: 'Received',
@@ -78,6 +78,7 @@ export const PHRASES: { status: AppStatus; phrases: string[] }[] = [
       'reviewing your application',
       'review your application',
       'application has been submitted',
+      'for submitting your application',
       'vielen dank für deine bewerbung',
       'vielen dank für ihre bewerbung',
       'danke für deine bewerbung',
@@ -203,7 +204,11 @@ export function classifyEmail(subject: string, body: string): AppStatus | null {
  */
 const REJECTION: RegExp[] = [
   /(?:\bnot|n['’]t|\bunable to|\bno longer)\s+(?:(?:be|to|able|going|currently|further)\s+){0,3}(?:mov(?:e|ing)\s+(?:you\s+|your (?:application|candidacy|profile)\s+)?forward|proceed(?:ing)?\b|progress(?:ing)?\b|advanc(?:e|ing)\b)/i,
-  /\b(?:have|has|were|was|are|be) not (?:been )?selected\b/i,
+  /(?:\b(?:have|has|were|was|are|be) not|\b(?:weren|wasn|aren|haven|hasn)['’]t) (?:been )?selected\b/i,
+  // "You do not meet the minimum qualifications for this position."
+  /\b(?:do|does|did)(?: not|n['’]t) (?:meet|match|satisfy) (?:\w+ ){0,3}(?:qualifications|requirements)\b/i,
+  // "The credentials of other candidates may better fit our needs."
+  /\bother (?:candidates?|applicants?)\b[^.]{0,60}\b(?:better|more closely|closer) (?:fit|match|align)/i,
   // "this time we did not select you for further consideration".
   /\b(?:did|do|will|could|can)(?: not|n['’]t) (?:select|choose|shortlist|progress) you\b/i,
   /\bnot (?:a|the right|an? (?:good|strong|perfect))\s+(?:match|fit)\b/i,

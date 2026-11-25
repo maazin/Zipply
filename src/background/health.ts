@@ -120,6 +120,6 @@ export async function diagnostics(): Promise<object> {
     health: await healthChecks(),
     counts: { applied, unlogged, unmatched, answers, resumes, queued: queue.length },
     queue: queue.map((q) => ({ op: q.op, attempts: q.attempts, lastError: scrub(q.lastError), ageHours: Math.round((Date.now() - q.createdAt) / 3_600_000) })),
-    errors: (await recentErrors()).map((e) => ({ at: new Date(e.at).toISOString(), where: e.where, message: e.message })),
+    errors: (await recentErrors()).map((e) => ({ at: new Date(e.at).toISOString(), where: e.where, message: e.message, ...(e.count ? { count: e.count } : {}) })),
   }
 }

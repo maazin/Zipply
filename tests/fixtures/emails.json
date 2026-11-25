@@ -1,0 +1,114 @@
+[
+  {
+    "why": "Rejection whose subject opens with thanks for applying",
+    "from": "notifications@careers.orbitpay.com",
+    "subject": "Thank you for applying to Data Scientist (Analytics), Payments! While we cannot move forward at this time...",
+    "body": "Dear Alex,\n\nThank you for considering Orbitpay as your potential employer. We appreciate your interest in joining our team as Data Scientist (Analytics), Payments, and we recognise the time and effort you invested in your application.\n\nUnfortunately, we have decided to proceed with other candidates who meet our current job requirements. Nonetheless, we appreciate your interest in joining our team.\n\nWe encourage you to keep an eye on our career site.",
+    "expect": "Rejected"
+  },
+  {
+    "why": "Lever rejection under a 'Thank You for Applying' subject",
+    "from": "no-reply@hire.lever.co",
+    "subject": "Thank You for Applying - SDET",
+    "body": "Hi Alex,\n\nThank you so much for your interest in the SDET role at Northwind! We truly appreciate you taking the time to apply and share your background with us.\n\nAfter reviewing your application, we’ve decided to move forward with other candidates whose experience is a closer match for what we need right now. That said, we’ll keep your information on file.",
+    "expect": "Rejected"
+  },
+  {
+    "why": "SmartRecruiters 'Thank you from' rejection",
+    "from": "notifications@smartrecruiters.com",
+    "subject": "Thank you from Acme Media - Jr. Software Engineer - Alex Doe",
+    "body": " Hi Alex,\nThank you for taking the time to apply for the Jr. Software Engineer position at Acme Media.&nbsp;We wanted to inform you that at this time&nbsp;we will not be moving forward with your candidacy.  &nbsp;\nWe&nbsp;encourage you to continue to check out our careers site.",
+    "expect": "Rejected"
+  },
+  {
+    "why": "Avature rejection that also says you may be considered elsewhere",
+    "from": "globex@avature.net",
+    "subject": "Globex Follow-Up for the Associate, Software Engineer position, Job #400118",
+    "body": "Hello Alex,\n\nThank you for your interest in Associate, Software Engineer position. After careful review of your resume and qualifications, we regret to inform you that we will not be moving forward with your application for this specific position.\n\nThis is only a status update regarding the particular position you were considered for. You may still be under consideration for other opportunities.",
+    "expect": "Rejected"
+  },
+  {
+    "why": "iCIMS 'weren't selected for further consideration'",
+    "from": "careers_noreply@initech.com",
+    "subject": "Initech Application: 2026-10001 - Product Development Engineer",
+    "body": "Hello Alex \n \nThank you for taking the time to apply for the 2026-10001 - Product Development Engineer role.  A job search takes real effort, and we appreciate you considering Initech. Unfortunately, you weren't selected for further consideration.\n \nWe'll keep your resume on file.",
+    "expect": "Rejected"
+  },
+  {
+    "why": "Rejection for not meeting the minimum qualifications",
+    "from": "burgerco+autoreply@talent.icims.com",
+    "subject": "Application Status from Springfield",
+    "body": "Dear Alex,\n \nWe appreciate your interest at The Burger Company and taking the time to apply for the Platform Engineer position at Springfield. We have reviewed your application and are sorry to inform you that you do not meet the minimum qualifications for this position. We want to invite you to explore more jobs.",
+    "expect": "Rejected"
+  },
+  {
+    "why": "'Regarding Your Application' rejection",
+    "from": "campusly+email+7vy5@talent.icims.com",
+    "subject": "Campusly – Regarding Your Application",
+    "body": " \nDear Alex,\n \nThank you for taking the time to apply for the Software Engineer I position at Campusly. We were impressed by your credentials and are grateful for your interest in joining our team.\n \nAfter careful consideration, we have decided to move forward with other candidates for this position.",
+    "expect": "Rejected"
+  },
+  {
+    "why": "Rejection after an interview, subject only 'Thank You'",
+    "from": "umbrella+email+113u@talent.icims.com",
+    "subject": "Thank You",
+    "body": " \nHello Alex,\n \nThank you for taking the time to speak with a member of our team. We hope you found the time you spent interesting and enjoyable.\n \nWe have carefully reviewed the information and regret that at this time we will not be moving forward with the interview process.",
+    "expect": "Rejected"
+  },
+  {
+    "why": "'Won't be able to invite you to the next phase'",
+    "from": "careers@recruiting.hooli-health.com",
+    "subject": "Associate AI or ML Engineer 5550123 at Hooli Health",
+    "body": "Dear Alex,\n\nThank you for your application for the position of Associate AI or ML Engineer - 5550123.\n\nWe appreciate your interest in joining our company and we want to thank you for the time and effort you invested.\n\nWe received a large number of applications, and after carefully reviewing all of them, unfortunately, we have to inform you that we won’t be able to invite you to the next phase of our selection process at this time.",
+    "expect": "Rejected"
+  },
+  {
+    "why": "Oracle 'job application status' rejection in a table",
+    "from": "eino.fa.sender@workflow.mail.us2.cloud.oracle.com",
+    "subject": "Your job application status (Job number: 300200100)",
+    "body": " RTF Template\n\n| |\n| |\n\n| Alex, We appreciate your interest in exploring the Machine Learning Associate position at Megabank. At this time, we are sorry to let you know we're moving forward with other candidates. Please continue to visit our careers site to find other opportunities. |",
+    "expect": "Rejected"
+  },
+  {
+    "why": "'Other candidates may better fit our needs'",
+    "from": "TalentAcquisition@invalidemail.com",
+    "subject": "Thank you for your interest in the AI Engineer (700412) position at Pied Piper, Inc.",
+    "body": "| |\n| Hello Alex: Thank you for submitting your application for the AI Engineer (700412) position at Pied Piper. We are fortunate to have many qualified candidates apply to each of our positions. We have reviewed the qualifications of each candidate and after careful consideration, we have determined that the credentials of other candidates may better fit our needs at this time. We will retain your candidate file in our database. |",
+    "expect": "Rejected"
+  },
+  {
+    "why": "Recruiter asks you to take assessments",
+    "from": "recruiter@vandelay.com",
+    "subject": "Vandelay - Online Assessments",
+    "body": "Hi Alex,\n\nThanks for applying to Vandelay! We have reviewed your resume and would like to get you started with our application process. All applicants are required to complete a series of assessments, the results being one piece of multiple qualifications to progress to an interview.\n\nPlease let us know when you are available to complete the PI, Criteria, and TET assessments.",
+    "expect": "Assessment"
+  },
+  {
+    "why": "A form to finish the application is not an assessment",
+    "from": "talentacquisition@soylent.com",
+    "subject": "Soylent next steps",
+    "body": "Alex,\n\nThank you for submitting your application to Soylent. We’re happy to see you applied for the Data & Insights position!\n\nIn order for your application to be considered, you’ll need to complete 2 steps as soon as possible. These steps should take no more than 5 minutes.\n\n  1. Review your candidate information sheet (see below link).\n  2. Ensure you answer the additional questions at the bottom of the form.",
+    "expect": "Received"
+  },
+  {
+    "why": "'Please Review for Next Steps' is a plain confirmation",
+    "from": "no-reply@wonka.com",
+    "subject": "Thank You for Applying to Wonka - Please Review for Next Steps",
+    "body": "Alex,\n\nThank you for your interest in Wonka! We have received your application for Software Engineer I.\n\nWe are fortunate to have a competitive pool of applicants, and we appreciate your patience as we carefully evaluate all submissions.\nOur team will be in contact with you once your application has been reviewed.",
+    "expect": "Received"
+  },
+  {
+    "why": "Plain confirmation",
+    "from": "acmehr@adp.com",
+    "subject": "We've received your application for Junior AI Engineer!",
+    "body": "Hi Alex,\n\nThanks for applying for Junior AI Engineer at Acme. Our team will review your application and reach out if your background is a match.",
+    "expect": "Received"
+  },
+  {
+    "why": "A conditional 'if you do not meet' in a confirmation is not a rejection",
+    "from": "no-reply@us.greenhouse-mail.io",
+    "subject": "Thank you for applying to Hooli",
+    "body": "Hi Alex,\n\nThanks for applying to Hooli! Our recruiting team will review your application.\n\nIf you do not meet the minimum qualifications for this role, we will keep your profile for future openings.",
+    "expect": "Received"
+  }
+]

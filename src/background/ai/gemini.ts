@@ -25,6 +25,13 @@ export function quotaFrom(model: string, msg: string): QuotaError {
   return new QuotaError(model, /per ?day/i.test(msg), wait ? Math.ceil(Number(wait[1]) * 1000) : 30_000)
 }
 
+/** Gemini is busy ("high demand", 503) or hit a server error: worth one more try in a moment. */
+export function isBusy(e: unknown): boolean {
+  const status = (e as { status?: number })?.status
+  const msg = e instanceof Error ? e.message : String(e)
+  return (status != null && status >= 500) || /"code":\s*5\d\d|UNAVAILABLE|overloaded|high demand|INTERNAL/i.test(msg)
+}
+
 let client: { key: string; ai: GoogleGenAI } | null = null
 
 function ai(apiKey: string): GoogleGenAI {

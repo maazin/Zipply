@@ -10,9 +10,10 @@ vi.mock('@/background/ai/gemini', async (orig) => {
   return { ...real, geminiGenerate: vi.fn() }
 })
 
-const { quotaFrom } = await import('@/background/ai/gemini')
+const { quotaFrom, isBusy } = await import('@/background/ai/gemini')
 const { geminiGenerate } = await import('@/background/ai/gemini')
 const { runAi } = await import('@/background/ai/router')
+const { logError, recentErrors } = await import('@/lib/errlog')
 const { setGeminiKey, getSettings } = await import('@/lib/repo')
 const { isSpent, usageCount, bumpUsage, clearOldLimitMarks } = await import('@/lib/usage')
 const { db } = await import('@/lib/db')
@@ -72,5 +73,35 @@ describe('Gemini quota errors', () => {
     await clearOldLimitMarks({ [models.flash]: dailyLimits.flash, [models.flashLite]: dailyLimits.flashLite })
     expect(await usageCount(models.flash)).toBe(0)
     expect(await usageCount(models.flashLite)).toBe(12)
+  })
+})
+
+describe('Gemini busy ("high demand")', () => {
+  const busy = () => Object.assign(new Error('{"error":{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}'), { status: 503 })
+
+  it('tells busy from a real failure', () => {
+    expect(isBusy(busy())).toBe(true)
+    expect(isBusy(new Error('API key not valid'))).toBe(false)
+  })
+
+  it('tries the same model once more before settling for a lesser one', async () => {
+    const { models } = await getSettings()
+    vi.mocked(geminiGenerate).mockRejectedValueOnce(busy()).mockResolvedValueOnce('from flash')
+    expect(await runAi('write', 's', 'p')).toEqual({ text: 'from flash', model: models.flash })
+  })
+
+  it('moves on when it is still busy', async () => {
+    const { models } = await getSettings()
+    vi.mocked(geminiGenerate).mockRejectedValueOnce(busy()).mockRejectedValueOnce(busy()).mockResolvedValueOnce('from lite')
+    expect(await runAi('write', 's', 'p')).toEqual({ text: 'from lite', model: models.flashLite })
+  })
+
+  it('a run of the same error is one entry in the log, so it cannot push the others out', async () => {
+    await logError('queue append', new Error('offline'))
+    for (let i = 0; i < 40; i++) await logError('ai flash', busy())
+    const log = await recentErrors()
+    expect(log).toHaveLength(2)
+    expect(log[0].where).toBe('queue append')
+    expect(log[1]).toMatchObject({ where: 'ai flash', count: 40 })
   })
 })
