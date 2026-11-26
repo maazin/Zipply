@@ -7,21 +7,74 @@
 import type { SalaryRange, WorkMode } from '@/shared/types'
 import { findBadWord } from '@/shared/text'
 
-// Same pattern as Auto_job_applier_linkedIn's re_experience.
-const RE_EXPERIENCE = /[(]?\s*(\d+)\s*[)]?\s*[-to]*\s*\d*[+]*\s*years?/gi
+const WORD_NUM: Record<string, number> = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 }
+const N = String.raw`(\d{1,2}|zero|one|two|three|four|five|six|seven|eight|nine|ten)`
+/**
+ * "3 years", "3+ years", "(3) years", "3-5 years", "0–2 years", "1 to 3 years",
+ * "three years". Started from Auto_job_applier_linkedIn's re_experience, which
+ * missed en dashes and words, so "0–2 years" used to read as 2.
+ */
+const RE_EXPERIENCE = new RegExp(String.raw`\(?\s*${N}\s*\)?\s*(\+)?\s*(?:(?:-|–|—|to)\s*\(?\s*${N}\s*\)?\s*\+?\s*)?\+?\s*years?\b`, 'gi')
+/** Mentions of years that aren't experience. */
+const NOT_EXPERIENCE = /year degree|years? old|years? of age|(last|past|next|within|every|first) \d+(\+)? years|years? (in business|of history|ago|contract|commitment|term|program|warranty)/
+/** Wording that makes it nice to have rather than required. */
+const PREFERRED = /\b(prefer(?:red|ably|ence)?|ideal(?:ly)?|nice[- ]to[- ]have|a plus|bonus|desired|desirable|advantage(?:ous)?)\b/i
+/** A heading line like "Preferred qualifications" or "Nice to have". */
+const HEADING = /^[\s#*•·-]*[a-z][a-z &/'’()-]{2,60}:?\s*$/i
 
-/** Years of experience asked for. Max of all mentions up to 12 (larger numbers are rarely YOE). */
-export function yearsRequired(text: string): number | null {
-  const nums: number[] = []
-  for (const m of text.matchAll(RE_EXPERIENCE)) {
-    const n = Number(m[1])
-    // Skip "the last 3 years", "a 4-year degree" style mentions.
-    const at = m.index ?? 0
-    const ctx = text.slice(Math.max(0, at - 10), at + m[0].length + 12).toLowerCase()
-    if (/year degree|years? old|last \d+ years|past \d+ years|years? (in business|of history|ago)/.test(ctx)) continue
-    if (n <= 12) nums.push(n)
+const num = (s: string | undefined) => (s == null ? null : (WORD_NUM[s.toLowerCase()] ?? Number(s)))
+
+export interface ExperienceAsk {
+  /** The fewest years that meet it: "3-5 years" is 3, "0-2 years" is 0. */
+  min: number
+  /** The top of a range, or null for "3+ years". */
+  max: number | null
+  /** Only preferred ("ideally 5 years", or under "Preferred qualifications"). */
+  preferred: boolean
+}
+
+/**
+ * Years of experience the posting asks for. A range counts from its low end.
+ * When several are required, the highest minimum wins ("1+ years of SQL, 3+
+ * years of Python" asks for 3). Preferred years count only when nothing is
+ * required. Numbers above 12 are rarely experience and are skipped.
+ */
+export function experienceAsk(text: string): ExperienceAsk | null {
+  const required: ExperienceAsk[] = []
+  const preferred: ExperienceAsk[] = []
+  let inPreferred = false
+  for (const line of text.split(/\n+/)) {
+    if (HEADING.test(line) && !/\d|\byears?\b/i.test(line)) {
+      inPreferred = PREFERRED.test(line) || /\bnice\b|\bplus\b|\bbonus\b/i.test(line)
+      continue
+    }
+    for (const sentence of line.split(/(?<=[.;!?])\s+/)) {
+      for (const m of sentence.matchAll(RE_EXPERIENCE)) {
+        const at = m.index ?? 0
+        const ctx = sentence.slice(Math.max(0, at - 10), at + m[0].length + 14).toLowerCase()
+        if (NOT_EXPERIENCE.test(ctx)) continue
+        const lo = num(m[1])!
+        const hi = num(m[3])
+        if (lo > 12 || (hi != null && hi > 15)) continue
+        const ask: ExperienceAsk = { min: hi != null ? Math.min(lo, hi) : lo, max: hi != null ? Math.max(lo, hi) : null, preferred: false }
+        if (inPreferred || PREFERRED.test(sentence)) preferred.push({ ...ask, preferred: true })
+        else required.push(ask)
+      }
+    }
   }
-  return nums.length ? Math.max(...nums) : null
+  const pool = required.length ? required : preferred
+  if (!pool.length) return null
+  return pool.reduce((best, a) => (a.min > best.min ? a : best))
+}
+
+/** Years of experience asked for: the low end of what's required, or null. */
+export function yearsRequired(text: string): number | null {
+  return experienceAsk(text)?.min ?? null
+}
+
+/** "0–2 years" or "3+ years". */
+export function describeAsk(a: ExperienceAsk): string {
+  return a.max != null ? `${a.min}–${a.max} years` : `${a.min}+ years`
 }
 
 export const SENIOR_TITLE = /\b(senior|sr\.?|staff|principal|lead|head of|director|manager ii|architect)\b/i

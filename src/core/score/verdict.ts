@@ -11,10 +11,11 @@ import { findBadWord, normalizeCompany } from '@/shared/text'
 import {
   annualize,
   clearanceAsk,
+  describeAsk,
+  experienceAsk,
   SENIOR_TITLE,
   sponsorshipStance,
   workModeOf,
-  yearsRequired,
 } from './postingSignals'
 
 export interface VerdictInput {
@@ -47,14 +48,23 @@ function roleFit(score: number | null, applyAt: number, maybeAt: number): { resu
 }
 
 function level(posting: Posting, profile: Profile): { result: DimensionResult; note: string } {
-  const asked = yearsRequired(posting.description)
+  const ask = experienceAsk(posting.description)
   const mine = totalYears(profile) ?? 0
+  const have = Math.floor(mine)
   const senior = SENIOR_TITLE.test(posting.title)
-  if (asked == null && !senior) return { result: 'pass', note: 'No experience requirement found' }
-  if (asked != null && asked > mine + 2) return { result: 'fail', note: `Asks for ${asked}+ years, you have ${Math.floor(mine)}` }
-  if (asked != null && asked > mine) return { result: 'warn', note: `Asks for ${asked} years, you have ${Math.floor(mine)}` }
-  if (senior && mine < 5) return { result: 'warn', note: `"${posting.title}" reads as a senior title` }
-  return { result: 'pass', note: asked != null ? `Asks for ${asked} years` : 'Level fits' }
+  if (!ask && !senior) return { result: 'pass', note: 'No experience requirement found' }
+  if (ask) {
+    const asks = `${ask.preferred ? 'Prefers' : 'Asks for'} ${describeAsk(ask)}`
+    // A range is met by its low end: "0–2 years" fits someone with none.
+    if (ask.min > mine) {
+      if (ask.preferred) return { result: 'warn', note: `${asks}, you have ${have}` }
+      return { result: ask.min > mine + 2 ? 'fail' : 'warn', note: `${asks}, you have ${have}` }
+    }
+    if (senior && mine < 5) return { result: 'warn', note: `"${posting.title}" reads as a senior title` }
+    return { result: 'pass', note: asks }
+  }
+  if (mine < 5) return { result: 'warn', note: `"${posting.title}" reads as a senior title` }
+  return { result: 'pass', note: 'Level fits' }
 }
 
 function sameCity(a: string, b: string): boolean {

@@ -4,7 +4,7 @@ import { computeMatch, sectionCompleteness } from '@/core/score/matchScore'
 import { computeVerdict } from '@/core/score/verdict'
 import { computeRedFlags, tierFor } from '@/core/score/redFlags'
 import { appliedLine, checkApplied } from '@/core/score/applied'
-import { parseSalary, yearsRequired, sponsorshipStance } from '@/core/score/postingSignals'
+import { experienceAsk, parseSalary, yearsRequired, sponsorshipStance } from '@/core/score/postingSignals'
 import { atsReport, columnSwitches } from '@/core/score/atsCheck'
 import { keywordInText, normalizeCompany } from '@/shared/text'
 import type { AppliedEntry, PageLayout } from '@/shared/types'
@@ -193,9 +193,30 @@ describe('match score (Resume-Matcher compute_ats_score)', () => {
 })
 
 describe('posting signals', () => {
-  it('reads years of experience like re_experience', () => {
-    expect(yearsRequired('3-5 years of experience; 10+ years preferred')).toBe(10)
+  it('reads years of experience', () => {
     expect(yearsRequired('a 4-year degree and 2 years of SQL')).toBe(2)
+    expect(yearsRequired('3+ years of experience with Python')).toBe(3)
+    expect(yearsRequired('Minimum of (3) years of relevant experience')).toBe(3)
+    expect(yearsRequired('two years of experience in analytics')).toBe(2)
+  })
+  it('counts a range from its low end, whatever the dash', () => {
+    expect(experienceAsk('0-2 years of experience')).toEqual({ min: 0, max: 2, preferred: false })
+    expect(experienceAsk('0–2 years of experience')).toEqual({ min: 0, max: 2, preferred: false })
+    expect(experienceAsk('0 — 2 years of experience')).toEqual({ min: 0, max: 2, preferred: false })
+    expect(experienceAsk('1 to 3 years of experience')).toEqual({ min: 1, max: 3, preferred: false })
+    expect(experienceAsk('3-5+ years in data engineering')).toEqual({ min: 3, max: 5, preferred: false })
+    expect(experienceAsk('zero to two years of experience')).toEqual({ min: 0, max: 2, preferred: false })
+  })
+  it('takes the highest requirement, and preferred years only when nothing is required', () => {
+    expect(yearsRequired('1+ years of SQL; 3+ years of Python')).toBe(3)
+    expect(yearsRequired('3-5 years of experience; 10+ years preferred')).toBe(3)
+    expect(experienceAsk('Ideally 5+ years of experience')).toEqual({ min: 5, max: null, preferred: true })
+    const jd = 'Requirements\n- 0-2 years of experience with SQL\nPreferred qualifications\n- 4+ years building dashboards'
+    expect(experienceAsk(jd)).toEqual({ min: 0, max: 2, preferred: false })
+  })
+  it("skips years that aren't experience", () => {
+    expect(yearsRequired('A 2 year contract. Founded over the past 10 years.')).toBeNull()
+    expect(yearsRequired('Must be 18 years old')).toBeNull()
   })
   it('parses salary ranges', () => {
     expect(parseSalary('Pay: $60,000 - $120,000 per year')).toMatchObject({ min: 60000, max: 120000, period: 'year' })
@@ -234,6 +255,22 @@ describe('verdict (career-ops rubric)', () => {
   it('says Maybe on one warning', () => {
     const v = computeVerdict({ posting: posting({ title: 'Senior Data Analyst', description: JD }), profile: profile(), matchScore: 80 })
     expect(v.verdict).toBe('Maybe')
+  })
+  it('a range is met by its low end: "0-2 years" fits someone with none', () => {
+    const p = profile()
+    p.answers.yearsExperience = 0
+    for (const d of ['0-2 years of experience with SQL and Python', '0–2 years of experience with SQL and Python', '0 to 2 years of experience']) {
+      const lvl = computeVerdict({ posting: posting({ description: d }), profile: p, matchScore: 82 }).dimensions.find((x) => x.name === 'Level')!
+      expect(lvl, d).toMatchObject({ result: 'pass', note: 'Asks for 0–2 years' })
+    }
+    const mid = computeVerdict({ posting: posting({ description: '2–4 years of experience' }), profile: profile(), matchScore: 82 }).dimensions.find((x) => x.name === 'Level')!
+    expect(mid).toMatchObject({ result: 'warn', note: 'Asks for 2–4 years, you have 1' })
+  })
+  it('preferred years only warn, never fail', () => {
+    const p = profile()
+    p.answers.yearsExperience = 0
+    const lvl = computeVerdict({ posting: posting({ description: 'Nice to have: 8+ years of experience' }), profile: p, matchScore: 82 }).dimensions.find((x) => x.name === 'Level')!
+    expect(lvl).toMatchObject({ result: 'warn', note: 'Prefers 8+ years, you have 0' })
   })
   it('says Skip under the maybe threshold', () => {
     expect(computeVerdict({ posting: posting({ description: JD }), profile: profile(), matchScore: 40 }).verdict).toBe('Skip')
